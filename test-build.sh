@@ -113,14 +113,15 @@ done
 
 # Hardcode image name for single-repo structure
 IMAGE_NAME="minio"
+IMAGE_DIR="images/$IMAGE_NAME"
 
-if [ ! -f "config.yaml" ]; then
-    print_error "Configuration file not found: config.yaml"
+if [ ! -f "$IMAGE_DIR/config.yaml" ]; then
+    print_error "Configuration file not found: $IMAGE_DIR/config.yaml"
     exit 1
 fi
 
-if [ ! -f "Containerfile" ]; then
-    print_error "Containerfile not found"
+if [ ! -f "$IMAGE_DIR/Dockerfile" ]; then
+    print_error "Dockerfile not found in $IMAGE_DIR"
     exit 1
 fi
 
@@ -146,17 +147,17 @@ fi
 
 if ! command -v yq &> /dev/null; then
     print_warning "yq is not installed. Install with: brew install yq (macOS) or see https://github.com/mikefarah/yq"
-    print_info "Attempting to parse config.yaml without yq..."
+    print_info "Attempting to parse $IMAGE_DIR/config.yaml without yq..."
 
     # Fallback parsing
-    BASE_IMAGE=$(grep '^base_image:' "config.yaml" | sed 's/base_image: *["'"'"']\?\([^"'"'"']*\)["'"'"']\?/\1/')
-    VERSION=$(grep '^version:' "config.yaml" | sed 's/version: *["'"'"']\?\([^"'"'"']*\)["'"'"']\?/\1/')
+    BASE_IMAGE=$(grep '^base_image:' "$IMAGE_DIR/config.yaml" | sed 's/base_image: *["'"'"']\?\([^"'"'"']*\)["'"'"']\?/\1/')
+    VERSION=$(grep '^version:' "$IMAGE_DIR/config.yaml" | sed 's/version: *["'"'"']\?\([^"'"'"']*\)["'"'"']\?/\1/')
 else
     # Parse config.yaml
-    BASE_IMAGE=$(yq eval '.base_image' "config.yaml")
-    VERSION=$(yq eval '.version' "config.yaml")
-    DESCRIPTION=$(yq eval '.description // ""' "config.yaml")
-    CONFIG_PLATFORMS=$(yq eval '.platforms // "linux/amd64,linux/arm64"' "config.yaml")
+    BASE_IMAGE=$(yq eval '.base_image' "$IMAGE_DIR/config.yaml")
+    VERSION=$(yq eval '.version' "$IMAGE_DIR/config.yaml")
+    DESCRIPTION=$(yq eval '.description // ""' "$IMAGE_DIR/config.yaml")
+    CONFIG_PLATFORMS=$(yq eval '.platforms // "linux/amd64,linux/arm64"' "$IMAGE_DIR/config.yaml")
 
     print_info "Description: $DESCRIPTION"
     print_info "Configured platforms: $CONFIG_PLATFORMS"
@@ -177,9 +178,9 @@ if [[ "$PLATFORM" == *","* ]]; then
     print_warning "Multi-platform build: --load disabled (use --push to push to registry)"
 fi
 
-# Use Containerfile in root directory
-CONTAINERFILE="Containerfile"
-print_info "Using Containerfile: $CONTAINERFILE"
+# Use Dockerfile in images directory
+CONTAINERFILE="$IMAGE_DIR/Dockerfile"
+print_info "Using Dockerfile: $CONTAINERFILE"
 
 echo ""
 
@@ -195,7 +196,7 @@ BUILD_CMD="docker buildx build \
     $NO_CACHE \
     $LOAD \
     $PUSH \
-    ."
+    $IMAGE_DIR"
 
 print_info "Build command:"
 echo "$BUILD_CMD"

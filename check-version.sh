@@ -48,8 +48,11 @@ get_image_digest() {
 
 echo "=== Checking for updates ==="
 
-# Get current version from Containerfile
-CURRENT_VERSION=$(grep "ARG RELEASE=" Containerfile | head -1 | cut -d'=' -f2)
+# Set image directory
+IMAGE_DIR="images/minio"
+
+# Get current version from Dockerfile
+CURRENT_VERSION=$(grep "ARG RELEASE=" "$IMAGE_DIR/Dockerfile" | head -1 | cut -d'=' -f2)
 echo "Current MinIO version: $CURRENT_VERSION"
 
 # Fetch latest release from GitHub
@@ -57,11 +60,11 @@ LATEST_VERSION=$(curl -s https://api.github.com/repos/minio/minio/releases/lates
 echo "Latest MinIO version: $LATEST_VERSION"
 
 # Extract current base images and their digests
-GOLANG_IMAGE=$(grep "FROM golang:" Containerfile | head -1)
+GOLANG_IMAGE=$(grep "FROM golang:" "$IMAGE_DIR/Dockerfile" | head -1)
 GOLANG_TAG=$(echo "$GOLANG_IMAGE" | sed 's/.*golang:\([^@]*\).*/\1/')
 CURRENT_GOLANG_DIGEST=$(echo "$GOLANG_IMAGE" | grep -oP 'sha256:[a-f0-9]+' || echo "")
 
-UBI_IMAGE=$(grep "FROM registry.access.redhat.com/ubi9/ubi-micro:" Containerfile | head -1)
+UBI_IMAGE=$(grep "FROM registry.access.redhat.com/ubi9/ubi-micro:" "$IMAGE_DIR/Dockerfile" | head -1)
 UBI_TAG=$(echo "$UBI_IMAGE" | sed 's/.*ubi-micro:\([^@]*\).*/\1/')
 CURRENT_UBI_DIGEST=$(echo "$UBI_IMAGE" | grep -oP 'sha256:[a-f0-9]+' || echo "")
 
@@ -88,17 +91,17 @@ if [ "$CURRENT_VERSION" != "$LATEST_VERSION" ] && [[ "$LATEST_VERSION" > "$CURRE
   echo "✓ MinIO update available: $CURRENT_VERSION -> $LATEST_VERSION"
   UPDATE_NEEDED=true
 
-  # Update Containerfile
-  $SED_INPLACE "s|ARG RELEASE=$CURRENT_VERSION|ARG RELEASE=$LATEST_VERSION|g" Containerfile
-  $SED_CLEANUP Containerfile.bak 2>/dev/null || true
+  # Update Dockerfile
+  $SED_INPLACE "s|ARG RELEASE=$CURRENT_VERSION|ARG RELEASE=$LATEST_VERSION|g" "$IMAGE_DIR/Dockerfile"
+  $SED_CLEANUP "$IMAGE_DIR/Dockerfile.bak" 2>/dev/null || true
 
   # Update config.yaml - version field
-  $SED_INPLACE "s|version: \"$CURRENT_VERSION\"|version: \"$LATEST_VERSION\"|g" config.yaml
-  $SED_CLEANUP config.yaml.bak 2>/dev/null || true
+  $SED_INPLACE "s|version: \"$CURRENT_VERSION\"|version: \"$LATEST_VERSION\"|g" "$IMAGE_DIR/config.yaml"
+  $SED_CLEANUP "$IMAGE_DIR/config.yaml.bak" 2>/dev/null || true
 
   # Update config.yaml - build_args RELEASE field
-  $SED_INPLACE "s|RELEASE: \"$CURRENT_VERSION\"|RELEASE: \"$LATEST_VERSION\"|g" config.yaml
-  $SED_CLEANUP config.yaml.bak 2>/dev/null || true
+  $SED_INPLACE "s|RELEASE: \"$CURRENT_VERSION\"|RELEASE: \"$LATEST_VERSION\"|g" "$IMAGE_DIR/config.yaml"
+  $SED_CLEANUP "$IMAGE_DIR/config.yaml.bak" 2>/dev/null || true
 else
   echo "✓ MinIO is up to date"
 fi
@@ -111,9 +114,9 @@ if [ -n "$LATEST_GOLANG_DIGEST" ] && [ "$CURRENT_GOLANG_DIGEST" != "$LATEST_GOLA
   echo "  New: $LATEST_GOLANG_DIGEST"
   UPDATE_NEEDED=true
 
-  # Update Containerfile with new digest
-  $SED_INPLACE "s|golang:${GOLANG_TAG}@${CURRENT_GOLANG_DIGEST}|golang:${GOLANG_TAG}@${LATEST_GOLANG_DIGEST}|g" Containerfile
-  $SED_CLEANUP Containerfile.bak 2>/dev/null || true
+  # Update Dockerfile with new digest
+  $SED_INPLACE "s|golang:${GOLANG_TAG}@${CURRENT_GOLANG_DIGEST}|golang:${GOLANG_TAG}@${LATEST_GOLANG_DIGEST}|g" "$IMAGE_DIR/Dockerfile"
+  $SED_CLEANUP "$IMAGE_DIR/Dockerfile.bak" 2>/dev/null || true
 else
   echo "✓ Golang base image is up to date"
 fi
@@ -126,9 +129,9 @@ if [ -n "$LATEST_UBI_DIGEST" ] && [ "$CURRENT_UBI_DIGEST" != "$LATEST_UBI_DIGEST
   echo "  New: $LATEST_UBI_DIGEST"
   UPDATE_NEEDED=true
 
-  # Update Containerfile with new digest
-  $SED_INPLACE "s|ubi-micro:${UBI_TAG}@${CURRENT_UBI_DIGEST}|ubi-micro:${UBI_TAG}@${LATEST_UBI_DIGEST}|g" Containerfile
-  $SED_CLEANUP Containerfile.bak 2>/dev/null || true
+  # Update Dockerfile with new digest
+  $SED_INPLACE "s|ubi-micro:${UBI_TAG}@${CURRENT_UBI_DIGEST}|ubi-micro:${UBI_TAG}@${LATEST_UBI_DIGEST}|g" "$IMAGE_DIR/Dockerfile"
+  $SED_CLEANUP "$IMAGE_DIR/Dockerfile.bak" 2>/dev/null || true
 else
   echo "✓ UBI base image is up to date"
 fi
