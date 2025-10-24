@@ -22,10 +22,11 @@ get_image_digest() {
   # Use Docker Hub API or registry API to get the digest
   if [[ $image == *"registry.access.redhat.com"* ]]; then
     # For Red Hat registry, query directly without authentication (public images)
-    local digest=$(curl -sL \
-      -H "Accept: application/vnd.docker.distribution.manifest.v2+json" \
+    # Accept manifest list for multi-arch images
+    local digest=$(curl -sI \
+      -H "Accept: application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.docker.distribution.manifest.v2+json" \
       "https://${image}/manifests/${tag}" \
-      -I 2>/dev/null | grep -i docker-content-digest | awk '{print $2}' | tr -d '\r')
+      2>/dev/null | grep -i docker-content-digest | awk '{print $2}' | tr -d '\r')
 
     echo "$digest"
   else
@@ -36,11 +37,12 @@ get_image_digest() {
     # Get token for Docker Hub API
     local token=$(curl -s "https://auth.docker.io/token?service=registry.docker.io&scope=repository:${repo}:pull" | jq -r '.token')
 
-    # Get manifest digest
-    local digest=$(curl -s -H "Accept: application/vnd.docker.distribution.manifest.v2+json" \
+    # Get manifest digest - accept manifest list for multi-arch images
+    local digest=$(curl -sI \
+      -H "Accept: application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.docker.distribution.manifest.v2+json" \
       -H "Authorization: Bearer $token" \
       "https://registry-1.docker.io/v2/${repo}/manifests/${tag}" \
-      -I | grep -i docker-content-digest | awk '{print $2}' | tr -d '\r')
+      | grep -i docker-content-digest | awk '{print $2}' | tr -d '\r')
 
     echo "$digest"
   fi
