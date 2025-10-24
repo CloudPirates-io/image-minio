@@ -1,0 +1,151 @@
+# Security-Hardened MinIO Docker Compose Configuration
+# This configuration implements defense-in-depth security practices
+
+services:
+  minio:
+    image: zonlykroks/minio:latest
+    container_name: minio-secure
+
+    # Network configuration
+    ports:
+      - "9000:9000"  # S3 API
+      - "9001:9001"  # Web Console
+
+    # Security: Run as non-root user (already default in image, but explicit here)
+    user: "1000:1000"
+
+    # Security: Read-only root filesystem
+    # MinIO only needs write access to /data and /tmp
+    read_only: true
+
+    # Security: Drop all capabilities and prevent privilege escalation
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+    # Environment variables (use secrets in production - see below)
+    environment:
+      # Credentials - CHANGE THESE IN PRODUCTION
+      MINIO_ROOT_USER: admin
+      MINIO_ROOT_PASSWORD: changeThisSecurePassword123
+
+      # Security settings
+      MINIO_BROWSER: "on"
+      MINIO_BROWSER_LOGIN_ANIMATION: "off"  # Reduce attack surface
+      MINIO_JSON_LOGGING: "on"  # Structured logging
+
+      # Optional: Domain configuration for virtual-host-style requests
+      # MINIO_DOMAIN: minio.example.com
+      # MINIO_SERVER_URL: https://minio.example.com
+
+    # Volumes - only mount what's necessary
+    volumes:
+      # Data directory (read-write)
+      - minio-data:/data
+
+      # Temporary directory for MinIO client (read-write)
+      - type: tmpfs
+        target: /tmp
+        tmpfs:
+          size: 100M
+          mode: 1777
+
+      # Optional: TLS certificates (read-only)
+      # Uncomment and configure for production
+      # - ./certs:/home/minio/.minio/certs:ro
+
+    # Health check
+    healthcheck:
+      test: ["CMD", "/usr/bin/mc", "ready", "local", "--quiet"]
+      interval: 30s
+      timeout: 10s
+      start-period: 5s
+      retries: 3
+
+    # Restart policy
+    restart: unless-stopped
+
+    # Resource limits (adjust based on your needs)
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+volumes:
+  minio-data:
+    driver: local
+
+# Production variant using Docker secrets
+# Uncomment the section below and comment out the basic configuration above
+
+# secrets:
+#   minio_root_user:
+#     file: ./secrets/root_user.txt
+#   minio_root_password:
+#     file: ./secrets/root_password.txt
+#
+# services:
+#   minio:
+#     image: zonlykroks/minio:latest
+#     container_name: minio-secure
+#
+#     user: "1000:1000"
+#     read_only: true
+#     cap_drop:
+#       - ALL
+#     security_opt:
+#       - no-new-privileges:true
+#
+#     ports:
+#       - "9000:9000"
+#       - "9001:9001"
+#
+#     # Use Docker secrets for credentials
+#     secrets:
+#       - minio_root_user
+#       - minio_root_password
+#
+#     environment:
+#       # Point to secret files
+#       MINIO_ROOT_USER_FILE: /run/secrets/minio_root_user
+#       MINIO_ROOT_PASSWORD_FILE: /run/secrets/minio_root_password
+#
+#       MINIO_BROWSER: "on"
+#       MINIO_BROWSER_LOGIN_ANIMATION: "off"
+#       MINIO_JSON_LOGGING: "on"
+#
+#     volumes:
+#       - minio-data:/data
+#       - type: tmpfs
+#         target: /tmp
+#         tmpfs:
+#           size: 100M
+#           mode: 1777
+#       - ./certs:/home/minio/.minio/certs:ro
+#
+#     healthcheck:
+#       test: ["CMD", "/usr/bin/mc", "ready", "local", "--quiet"]
+#       interval: 30s
+#       timeout: 10s
+#       start-period: 5s
+#       retries: 3
+#
+#     restart: unless-stopped
+#
+#     deploy:
+#       resources:
+#         limits:
+#           cpus: '2.0'
+#           memory: 2G
+#         reservations:
+#           cpus: '0.5'
+#           memory: 512M
+#
+# volumes:
+#   minio-data:
+#     driver: local

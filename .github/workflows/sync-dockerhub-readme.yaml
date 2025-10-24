@@ -1,0 +1,52 @@
+name: Sync DockerHub README
+
+on:
+  workflow_dispatch: # Allow manual triggering
+  push:
+    branches:
+      - main
+    paths:
+      - 'DOCKERHUB.md'
+      - '.github/workflows/sync-dockerhub-readme.yaml'
+
+jobs:
+  sync-readme:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Check credentials
+        id: check-creds
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          if [ -z "$DOCKERHUB_USERNAME" ] || [ -z "$DOCKERHUB_TOKEN" ]; then
+            echo "❌ Docker Hub credentials not available"
+            echo "has_creds=false" >> $GITHUB_OUTPUT
+            exit 1
+          else
+            echo "✅ Docker Hub credentials available"
+            echo "has_creds=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Sync README to Docker Hub
+        if: steps.check-creds.outputs.has_creds == 'true'
+        uses: peter-evans/dockerhub-description@e98e4d1628a5f3be2be7c231e50981aee98723ae # v4.0.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ secrets.DOCKERHUB_USERNAME }}/minio
+          readme-filepath: ./DOCKERHUB.md
+          short-description: "Multi-platform MinIO built from official source"
+
+      - name: Generate summary
+        run: |
+          echo "## DockerHub README Synced" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Successfully synced README for **minio**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Repository**: https://hub.docker.com/r/${{ secrets.DOCKERHUB_USERNAME }}/minio" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Source File**: \`DOCKERHUB.md\`" >> $GITHUB_STEP_SUMMARY
