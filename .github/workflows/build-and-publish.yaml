@@ -136,6 +136,7 @@ jobs:
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          DOCKERHUB_REPOSITORY: ${{ secrets.DOCKERHUB_REPOSITORY }}
           COSIGN_KEY: ${{ secrets.COSIGN_KEY }}
           COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
         run: |
@@ -158,6 +159,11 @@ jobs:
 
           echo "dockerhub=$HAS_DOCKERHUB_CREDS" >> $GITHUB_OUTPUT
           echo "cosign=$HAS_COSIGN_CREDS" >> $GITHUB_OUTPUT
+
+          # Set repository name (fallback to image name if not set)
+          REPO_NAME="${DOCKERHUB_REPOSITORY:-${{ matrix.image }}}"
+          echo "dockerhub_repo=$REPO_NAME" >> $GITHUB_OUTPUT
+          echo "Docker Hub repository: $REPO_NAME"
 
       - name: Login to Docker Hub
         if: github.event.inputs.push_to_dockerhub == 'true' && steps.check-creds.outputs.dockerhub == 'true'
@@ -219,7 +225,8 @@ jobs:
           # Add Docker Hub tags if enabled and credentials are available
           if [ "${{ github.event.inputs.push_to_dockerhub }}" = "true" ] && [ "${{ steps.check-creds.outputs.dockerhub }}" = "true" ]; then
             DOCKERHUB_USER="${{ secrets.DOCKERHUB_USERNAME }}"
-            TAGS="${DOCKERHUB_USER}/$IMAGE_NAME:$VERSION$TAG_SUFFIX-amd64"
+            DOCKERHUB_REPO="${{ steps.check-creds.outputs.dockerhub_repo }}"
+            TAGS="${DOCKERHUB_USER}/${DOCKERHUB_REPO}:$VERSION$TAG_SUFFIX-amd64"
             SHOULD_PUSH="true"
           fi
 
@@ -335,6 +342,7 @@ jobs:
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          DOCKERHUB_REPOSITORY: ${{ secrets.DOCKERHUB_REPOSITORY }}
         run: |
           HAS_DOCKERHUB_CREDS="false"
           if [ -n "$DOCKERHUB_USERNAME" ] && [ -n "$DOCKERHUB_TOKEN" ]; then
@@ -344,6 +352,11 @@ jobs:
             echo "⚠ Docker Hub credentials not available"
           fi
           echo "dockerhub=$HAS_DOCKERHUB_CREDS" >> $GITHUB_OUTPUT
+
+          # Set repository name (fallback to image name if not set)
+          REPO_NAME="${DOCKERHUB_REPOSITORY:-${{ matrix.image }}}"
+          echo "dockerhub_repo=$REPO_NAME" >> $GITHUB_OUTPUT
+          echo "Docker Hub repository: $REPO_NAME"
 
       - name: Login to Docker Hub
         if: github.event.inputs.push_to_dockerhub == 'true' && steps.check-creds.outputs.dockerhub == 'true'
@@ -401,7 +414,8 @@ jobs:
 
           if [ "${{ github.event.inputs.push_to_dockerhub }}" = "true" ] && [ "${{ steps.check-creds.outputs.dockerhub }}" = "true" ]; then
             DOCKERHUB_USER="${{ secrets.DOCKERHUB_USERNAME }}"
-            TAGS="${DOCKERHUB_USER}/$IMAGE_NAME:$VERSION$TAG_SUFFIX-arm64"
+            DOCKERHUB_REPO="${{ steps.check-creds.outputs.dockerhub_repo }}"
+            TAGS="${DOCKERHUB_USER}/${DOCKERHUB_REPO}:$VERSION$TAG_SUFFIX-arm64"
             SHOULD_PUSH="true"
           fi
 
@@ -512,6 +526,7 @@ jobs:
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          DOCKERHUB_REPOSITORY: ${{ secrets.DOCKERHUB_REPOSITORY }}
           COSIGN_KEY: ${{ secrets.COSIGN_KEY }}
           COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
         run: |
@@ -534,6 +549,11 @@ jobs:
 
           echo "dockerhub=$HAS_DOCKERHUB_CREDS" >> $GITHUB_OUTPUT
           echo "cosign=$HAS_COSIGN_CREDS" >> $GITHUB_OUTPUT
+
+          # Set repository name (fallback to image name if not set)
+          REPO_NAME="${DOCKERHUB_REPOSITORY:-${{ matrix.image }}}"
+          echo "dockerhub_repo=$REPO_NAME" >> $GITHUB_OUTPUT
+          echo "Docker Hub repository: $REPO_NAME"
 
       - name: Login to Docker Hub
         if: github.event.inputs.push_to_dockerhub == 'true' && steps.check-creds.outputs.dockerhub == 'true'
@@ -588,17 +608,18 @@ jobs:
           # Create and push multi-arch manifests
           if [ "${{ github.event.inputs.push_to_dockerhub }}" = "true" ] && [ "${{ steps.check-creds.outputs.dockerhub }}" = "true" ]; then
             DOCKERHUB_USER="${{ secrets.DOCKERHUB_USERNAME }}"
+            DOCKERHUB_REPO="${{ steps.check-creds.outputs.dockerhub_repo }}"
 
             echo "Creating Docker Hub multi-arch manifest..."
-            docker buildx imagetools create -t ${DOCKERHUB_USER}/$IMAGE_NAME:$VERSION$TAG_SUFFIX \
-              ${DOCKERHUB_USER}/$IMAGE_NAME:$VERSION$TAG_SUFFIX-amd64 \
-              ${DOCKERHUB_USER}/$IMAGE_NAME:$VERSION$TAG_SUFFIX-arm64
+            docker buildx imagetools create -t ${DOCKERHUB_USER}/${DOCKERHUB_REPO}:$VERSION$TAG_SUFFIX \
+              ${DOCKERHUB_USER}/${DOCKERHUB_REPO}:$VERSION$TAG_SUFFIX-amd64 \
+              ${DOCKERHUB_USER}/${DOCKERHUB_REPO}:$VERSION$TAG_SUFFIX-arm64
 
             # Create latest tag if no suffix
             if [ -z "$TAG_SUFFIX" ]; then
-              docker buildx imagetools create -t ${DOCKERHUB_USER}/$IMAGE_NAME:latest \
-                ${DOCKERHUB_USER}/$IMAGE_NAME:$VERSION-amd64 \
-                ${DOCKERHUB_USER}/$IMAGE_NAME:$VERSION-arm64
+              docker buildx imagetools create -t ${DOCKERHUB_USER}/${DOCKERHUB_REPO}:latest \
+                ${DOCKERHUB_USER}/${DOCKERHUB_REPO}:$VERSION-amd64 \
+                ${DOCKERHUB_USER}/${DOCKERHUB_REPO}:$VERSION-arm64
             fi
           fi
 
@@ -659,6 +680,7 @@ jobs:
           if [ "${{ github.event.inputs.push_to_dockerhub }}" = "true" ] && [ "${{ steps.check-creds.outputs.dockerhub }}" = "true" ]; then
             echo "Deleting Docker Hub platform-specific tags..."
             DOCKERHUB_USER="${{ secrets.DOCKERHUB_USERNAME }}"
+            DOCKERHUB_REPO="${{ steps.check-creds.outputs.dockerhub_repo }}"
 
             # Get Docker Hub token
             DOCKERHUB_TOKEN=$(curl -s -X POST \
@@ -673,7 +695,7 @@ jobs:
 
                 curl -X DELETE \
                   -H "Authorization: JWT $DOCKERHUB_TOKEN" \
-                  "https://hub.docker.com/v2/repositories/$DOCKERHUB_USER/$IMAGE_NAME/tags/$TAG/" \
+                  "https://hub.docker.com/v2/repositories/$DOCKERHUB_USER/$DOCKERHUB_REPO/tags/$TAG/" \
                   && echo "✅ Deleted $TAG from Docker Hub" || echo "⚠️ Failed to delete $TAG from Docker Hub"
               done
             else
@@ -774,9 +796,10 @@ jobs:
           # Sign Docker Hub image if push is enabled
           if [ "${{ github.event.inputs.push_to_dockerhub }}" = "true" ] && [ "${{ steps.check-creds.outputs.dockerhub }}" = "true" ]; then
             DOCKERHUB_USER="${{ secrets.DOCKERHUB_USERNAME }}"
+            DOCKERHUB_REPO="${{ steps.check-creds.outputs.dockerhub_repo }}"
             echo "Signing Docker Hub image..."
             cosign sign -y --key env://COSIGN_KEY \
-              ${DOCKERHUB_USER}/$IMAGE_NAME:$VERSION$TAG_SUFFIX
+              ${DOCKERHUB_USER}/${DOCKERHUB_REPO}:$VERSION$TAG_SUFFIX
           fi
 
           # Sign GHCR image if push is enabled
@@ -861,8 +884,9 @@ jobs:
 
           if [ "${{ github.event.inputs.push_to_dockerhub }}" = "true" ] && [ "${{ steps.check-creds.outputs.dockerhub }}" = "true" ]; then
             DOCKERHUB_USER="${{ secrets.DOCKERHUB_USERNAME }}"
+            DOCKERHUB_REPO="${{ steps.check-creds.outputs.dockerhub_repo }}"
             echo "# From Docker Hub (multi-arch)" >> $GITHUB_STEP_SUMMARY
-            echo "docker pull ${DOCKERHUB_USER}/$IMAGE_NAME:$VERSION$TAG_SUFFIX" >> $GITHUB_STEP_SUMMARY
+            echo "docker pull ${DOCKERHUB_USER}/${DOCKERHUB_REPO}:$VERSION$TAG_SUFFIX" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
           fi
 
