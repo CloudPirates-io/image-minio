@@ -251,36 +251,6 @@ jobs:
           echo "Tags: $TAGS"
           echo "Cache scope: $IMAGE_NAME-amd64"
 
-      - name: Apply patches
-        id: patches
-        run: |
-          set -euo pipefail
-
-          IMAGE_NAME="${{ matrix.image }}"
-          PATCHES_DIR="images/$IMAGE_NAME/patches"
-
-          if [ -d "$PATCHES_DIR" ] && [ "$(ls -A $PATCHES_DIR/*.patch 2>/dev/null)" ]; then
-            echo "Applying patches for $IMAGE_NAME..."
-
-            # Create temporary directory for patched files
-            mkdir -p "/tmp/$IMAGE_NAME-patched"
-
-            # Apply each patch
-            for patch in $PATCHES_DIR/*.patch; do
-              echo "Applying patch: $(basename $patch)"
-              patch -p1 -d "/tmp/$IMAGE_NAME-patched" < "$patch" || {
-                echo "ERROR: Failed to apply patch: $patch"
-                exit 1
-              }
-            done
-
-            echo "patched=true" >> $GITHUB_OUTPUT
-            echo "patch_dir=/tmp/$IMAGE_NAME-patched" >> $GITHUB_OUTPUT
-          else
-            echo "No patches to apply"
-            echo "patched=false" >> $GITHUB_OUTPUT
-          fi
-
       - name: Generate Dockerfile
         run: |
           set -euo pipefail
@@ -306,22 +276,7 @@ jobs:
           LABEL org.opencontainers.image.version="$VERSION"
           LABEL org.opencontainers.image.vendor="CloudPirates"
           LABEL org.opencontainers.image.licenses="Apache-2.0"
-
-          # Copy patches if they exist
           EOF
-
-            if [ "${{ steps.patches.outputs.patched }}" = "true" ]; then
-              echo "COPY --from=patches / /" >> "$DOCKERFILE"
-            fi
-
-            # Add custom setup script if it exists
-            if [ -f "images/$IMAGE_NAME/setup.sh" ]; then
-              cat >> "$DOCKERFILE" <<EOF
-
-          COPY setup.sh /tmp/setup.sh
-          RUN chmod +x /tmp/setup.sh && /tmp/setup.sh && rm /tmp/setup.sh
-          EOF
-            fi
           fi
 
           echo "Generated Dockerfile:"
@@ -476,31 +431,6 @@ jobs:
           echo "Tags: $TAGS"
           echo "Cache scope: $IMAGE_NAME-arm64"
 
-      - name: Apply patches
-        id: patches
-        run: |
-          set -euo pipefail
-
-          IMAGE_NAME="${{ matrix.image }}"
-          PATCHES_DIR="images/$IMAGE_NAME/patches"
-
-          if [ -d "$PATCHES_DIR" ] && [ "$(ls -A $PATCHES_DIR/*.patch 2>/dev/null)" ]; then
-            echo "Applying patches for $IMAGE_NAME..."
-            mkdir -p "/tmp/$IMAGE_NAME-patched"
-            for patch in $PATCHES_DIR/*.patch; do
-              echo "Applying patch: $(basename $patch)"
-              patch -p1 -d "/tmp/$IMAGE_NAME-patched" < "$patch" || {
-                echo "ERROR: Failed to apply patch: $patch"
-                exit 1
-              }
-            done
-            echo "patched=true" >> $GITHUB_OUTPUT
-            echo "patch_dir=/tmp/$IMAGE_NAME-patched" >> $GITHUB_OUTPUT
-          else
-            echo "No patches to apply"
-            echo "patched=false" >> $GITHUB_OUTPUT
-          fi
-
       - name: Generate Dockerfile
         run: |
           set -euo pipefail
@@ -525,21 +455,7 @@ jobs:
           LABEL org.opencontainers.image.version="$VERSION"
           LABEL org.opencontainers.image.vendor="CloudPirates"
           LABEL org.opencontainers.image.licenses="Apache-2.0"
-
-          # Copy patches if they exist
           EOF
-
-            if [ "${{ steps.patches.outputs.patched }}" = "true" ]; then
-              echo "COPY --from=patches / /" >> "$DOCKERFILE"
-            fi
-
-            if [ -f "images/$IMAGE_NAME/setup.sh" ]; then
-              cat >> "$DOCKERFILE" <<EOF
-
-          COPY setup.sh /tmp/setup.sh
-          RUN chmod +x /tmp/setup.sh && /tmp/setup.sh && rm /tmp/setup.sh
-          EOF
-            fi
           fi
 
           echo "Generated Dockerfile:"
