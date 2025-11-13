@@ -1,0 +1,25 @@
+# Git files
+.git
+.github
+.gitignore
+
+# Documentation
+*.md
+README.md
+DOCKERHUB.md
+LICENSE
+
+# Scripts not needed in build
+test-build.sh
+check-version.sh
+
+# Docker Compose files
+docker-compose*.yml
+
+# Security files not needed in build context
+cosign.pub
+
+# CI/CD artifacts
+coverage
+*.log
+*.tmp

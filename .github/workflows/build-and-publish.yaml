@@ -891,3 +891,771 @@ jobs:
           fi
 
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+  # Build AMD64 images for older CPUs (cpuv1)
+  build-amd64-cpuv1:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.matrix != '' && fromJson(needs.detect-changes.outputs.matrix).include[0].image != 'none'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+        with:
+          buildkitd-flags: --debug
+
+      - name: Check credentials availability
+        id: check-creds
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          DOCKERHUB_REPOSITORY: ${{ secrets.DOCKERHUB_REPOSITORY }}
+          COSIGN_KEY: ${{ secrets.COSIGN_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+        run: |
+          HAS_DOCKERHUB_CREDS="false"
+          HAS_COSIGN_CREDS="false"
+
+          if [ -n "$DOCKERHUB_USERNAME" ] && [ -n "$DOCKERHUB_TOKEN" ]; then
+            HAS_DOCKERHUB_CREDS="true"
+            echo "✓ Docker Hub credentials available"
+          else
+            echo "⚠ Docker Hub credentials not available - publishing to Docker Hub will be skipped"
+          fi
+
+          if [ -n "$COSIGN_KEY" ] && [ -n "$COSIGN_PASSWORD" ]; then
+            HAS_COSIGN_CREDS="true"
+            echo "✓ Cosign credentials available"
+          else
+            echo "⚠ Cosign credentials not available - image signing will be skipped"
+          fi
+
+          echo "dockerhub=$HAS_DOCKERHUB_CREDS" >> $GITHUB_OUTPUT
+          echo "cosign=$HAS_COSIGN_CREDS" >> $GITHUB_OUTPUT
+
+          # Set repository name (fallback to image name if not set)
+          REPO_NAME="${DOCKERHUB_REPOSITORY:-${{ matrix.image }}}"
+          echo "dockerhub_repo=$REPO_NAME" >> $GITHUB_OUTPUT
+          echo "Docker Hub repository: $REPO_NAME"
+
+      - name: Login to Docker Hub
+        if: github.event.inputs.push_to_dockerhub == 'true' && steps.check-creds.outputs.dockerhub == 'true'
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Login to GHCR
+        if: github.event.inputs.push_to_ghcr == 'true'
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Parse image configuration
+        id: config
+        run: |
+          set -euo pipefail
+
+          IMAGE_NAME="${{ matrix.image }}"
+          CONFIG_FILE="images/$IMAGE_NAME/config.yaml"
+
+          if [ ! -f "$CONFIG_FILE" ]; then
+            echo "ERROR: Configuration file not found: $CONFIG_FILE"
+            exit 1
+          fi
+
+          # Parse config.yaml
+          BASE_IMAGE=$(yq eval '.base_image' "$CONFIG_FILE")
+          VERSION=$(yq eval '.version' "$CONFIG_FILE")
+          DESCRIPTION=$(yq eval '.description // ""' "$CONFIG_FILE")
+
+          # For platform-specific builds, we only build one platform at a time
+          PLATFORM="linux/amd64"
+          echo "Building for platform: $PLATFORM (cpuv1)"
+
+          BUILD_ARGS=$(yq eval '.build_args // {}' "$CONFIG_FILE" -o json -I=0)
+
+          # Get GitHub repo owner in lowercase
+          REPO_OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+
+          # Apply tag suffix if provided
+          TAG_SUFFIX=""
+          if [ -n "${{ github.event.inputs.tag_suffix }}" ]; then
+            TAG_SUFFIX="-${{ github.event.inputs.tag_suffix }}"
+          fi
+
+          # Build platform-specific tags with cpuv1 suffix
+          TAGS=""
+          SHOULD_PUSH="false"
+
+          # Add Docker Hub tags if enabled and credentials are available
+          if [ "${{ github.event.inputs.push_to_dockerhub }}" = "true" ] && [ "${{ steps.check-creds.outputs.dockerhub }}" = "true" ]; then
+            DOCKERHUB_REPO="${{ steps.check-creds.outputs.dockerhub_repo }}"
+            TAGS="${DOCKERHUB_REPO}:$VERSION$TAG_SUFFIX-cpuv1-amd64"
+            SHOULD_PUSH="true"
+          fi
+
+          # Add GHCR tags if enabled
+          if [ "${{ github.event.inputs.push_to_ghcr }}" = "true" ]; then
+            if [ -n "$TAGS" ]; then
+              TAGS="$TAGS,ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION$TAG_SUFFIX-cpuv1-amd64"
+            else
+              TAGS="ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION$TAG_SUFFIX-cpuv1-amd64"
+            fi
+            SHOULD_PUSH="true"
+          fi
+
+          # If no registry is selected, use a local tag for build-only
+          if [ -z "$TAGS" ]; then
+            echo "⚠️ No registry selected - building without push"
+            TAGS="local/$IMAGE_NAME:$VERSION$TAG_SUFFIX-cpuv1-amd64"
+          fi
+
+          echo "base_image=$BASE_IMAGE" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "description=$DESCRIPTION" >> $GITHUB_OUTPUT
+          echo "platform=$PLATFORM" >> $GITHUB_OUTPUT
+          echo "tags=$TAGS" >> $GITHUB_OUTPUT
+          echo "build_args=$BUILD_ARGS" >> $GITHUB_OUTPUT
+          echo "should_push=$SHOULD_PUSH" >> $GITHUB_OUTPUT
+
+          echo "Building $IMAGE_NAME:$VERSION from $BASE_IMAGE for $PLATFORM (cpuv1)"
+          echo "Tags: $TAGS"
+          echo "Cache scope: $IMAGE_NAME-amd64-cpuv1"
+
+      - name: Generate Dockerfile
+        run: |
+          set -euo pipefail
+
+          IMAGE_NAME="${{ matrix.image }}"
+          BASE_IMAGE="${{ steps.config.outputs.base_image }}"
+          VERSION="${{ steps.config.outputs.version }}"
+
+          DOCKERFILE="images/$IMAGE_NAME/Dockerfile.generated"
+          CUSTOM_DOCKERFILE="images/$IMAGE_NAME/Dockerfile"
+
+          # Use custom Dockerfile if it exists, otherwise generate one
+          if [ -f "$CUSTOM_DOCKERFILE" ]; then
+            echo "Using custom Dockerfile"
+            cp "$CUSTOM_DOCKERFILE" "$DOCKERFILE"
+          else
+            echo "Generating Dockerfile"
+            cat > "$DOCKERFILE" <<EOF
+          FROM $BASE_IMAGE
+
+          LABEL org.opencontainers.image.source="https://github.com/${{ github.repository }}"
+          LABEL org.opencontainers.image.description="${{ steps.config.outputs.description }}"
+          LABEL org.opencontainers.image.version="$VERSION"
+          LABEL org.opencontainers.image.vendor="CloudPirates"
+          LABEL org.opencontainers.image.licenses="Apache-2.0"
+          EOF
+          fi
+
+          echo "Generated Dockerfile:"
+          cat "$DOCKERFILE"
+
+      - name: Build and push AMD64 cpuv1
+        id: build
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: images/${{ matrix.image }}
+          file: images/${{ matrix.image }}/Dockerfile.generated
+          platforms: ${{ steps.config.outputs.platform }}
+          push: ${{ steps.config.outputs.should_push }}
+          tags: ${{ steps.config.outputs.tags }}
+          cache-from: type=gha,scope=${{ matrix.image }}-amd64-cpuv1
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}-amd64-cpuv1
+          labels: |
+            org.opencontainers.image.source=${{ github.event.repository.html_url }}
+            org.opencontainers.image.created=${{ github.event.head_commit.timestamp }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          sbom: true
+          provenance: true
+          outputs: type=image,name=target,annotation-index.org.opencontainers.image.description=${{ steps.config.outputs.description }}
+          build-args: |
+            BUILDKIT_PROGRESS=plain
+            GOAMD64=v1
+
+  # Build ARM64 images for older CPUs (cpuv1)
+  build-arm64-cpuv1:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.matrix != '' && fromJson(needs.detect-changes.outputs.matrix).include[0].image != 'none'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+        with:
+          buildkitd-flags: --debug
+
+      - name: Check credentials availability
+        id: check-creds
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          DOCKERHUB_REPOSITORY: ${{ secrets.DOCKERHUB_REPOSITORY }}
+        run: |
+          HAS_DOCKERHUB_CREDS="false"
+          if [ -n "$DOCKERHUB_USERNAME" ] && [ -n "$DOCKERHUB_TOKEN" ]; then
+            HAS_DOCKERHUB_CREDS="true"
+            echo "✓ Docker Hub credentials available"
+          else
+            echo "⚠ Docker Hub credentials not available"
+          fi
+          echo "dockerhub=$HAS_DOCKERHUB_CREDS" >> $GITHUB_OUTPUT
+
+          # Set repository name (fallback to image name if not set)
+          REPO_NAME="${DOCKERHUB_REPOSITORY:-${{ matrix.image }}}"
+          echo "dockerhub_repo=$REPO_NAME" >> $GITHUB_OUTPUT
+          echo "Docker Hub repository: $REPO_NAME"
+
+      - name: Login to Docker Hub
+        if: github.event.inputs.push_to_dockerhub == 'true' && steps.check-creds.outputs.dockerhub == 'true'
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Login to GHCR
+        if: github.event.inputs.push_to_ghcr == 'true'
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_arm64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Parse image configuration
+        id: config
+        run: |
+          set -euo pipefail
+
+          IMAGE_NAME="${{ matrix.image }}"
+          CONFIG_FILE="images/$IMAGE_NAME/config.yaml"
+
+          if [ ! -f "$CONFIG_FILE" ]; then
+            echo "ERROR: Configuration file not found: $CONFIG_FILE"
+            exit 1
+          fi
+
+          BASE_IMAGE=$(yq eval '.base_image' "$CONFIG_FILE")
+          VERSION=$(yq eval '.version' "$CONFIG_FILE")
+          DESCRIPTION=$(yq eval '.description // ""' "$CONFIG_FILE")
+
+          # For platform-specific builds, we only build one platform at a time
+          PLATFORM="linux/arm64"
+          echo "Building for platform: $PLATFORM (cpuv1)"
+
+          BUILD_ARGS=$(yq eval '.build_args // {}' "$CONFIG_FILE" -o json -I=0)
+          REPO_OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+
+          # Apply tag suffix if provided
+          TAG_SUFFIX=""
+          if [ -n "${{ github.event.inputs.tag_suffix }}" ]; then
+            TAG_SUFFIX="-${{ github.event.inputs.tag_suffix }}"
+          fi
+
+          # Build platform-specific tags with cpuv1 suffix
+          TAGS=""
+          SHOULD_PUSH="false"
+
+          if [ "${{ github.event.inputs.push_to_dockerhub }}" = "true" ] && [ "${{ steps.check-creds.outputs.dockerhub }}" = "true" ]; then
+            DOCKERHUB_REPO="${{ steps.check-creds.outputs.dockerhub_repo }}"
+            TAGS="${DOCKERHUB_REPO}:$VERSION$TAG_SUFFIX-cpuv1-arm64"
+            SHOULD_PUSH="true"
+          fi
+
+          if [ "${{ github.event.inputs.push_to_ghcr }}" = "true" ]; then
+            if [ -n "$TAGS" ]; then
+              TAGS="$TAGS,ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION$TAG_SUFFIX-cpuv1-arm64"
+            else
+              TAGS="ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION$TAG_SUFFIX-cpuv1-arm64"
+            fi
+            SHOULD_PUSH="true"
+          fi
+
+          if [ -z "$TAGS" ]; then
+            echo "⚠️ No registry selected - building without push"
+            TAGS="local/$IMAGE_NAME:$VERSION$TAG_SUFFIX-cpuv1-arm64"
+          fi
+
+          echo "base_image=$BASE_IMAGE" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "description=$DESCRIPTION" >> $GITHUB_OUTPUT
+          echo "platform=$PLATFORM" >> $GITHUB_OUTPUT
+          echo "tags=$TAGS" >> $GITHUB_OUTPUT
+          echo "build_args=$BUILD_ARGS" >> $GITHUB_OUTPUT
+          echo "should_push=$SHOULD_PUSH" >> $GITHUB_OUTPUT
+
+          echo "Building $IMAGE_NAME:$VERSION from $BASE_IMAGE for $PLATFORM (cpuv1)"
+          echo "Tags: $TAGS"
+          echo "Cache scope: $IMAGE_NAME-arm64-cpuv1"
+
+      - name: Generate Dockerfile
+        run: |
+          set -euo pipefail
+
+          IMAGE_NAME="${{ matrix.image }}"
+          BASE_IMAGE="${{ steps.config.outputs.base_image }}"
+          VERSION="${{ steps.config.outputs.version }}"
+
+          DOCKERFILE="images/$IMAGE_NAME/Dockerfile.generated"
+          CUSTOM_DOCKERFILE="images/$IMAGE_NAME/Dockerfile"
+
+          if [ -f "$CUSTOM_DOCKERFILE" ]; then
+            echo "Using custom Dockerfile"
+            cp "$CUSTOM_DOCKERFILE" "$DOCKERFILE"
+          else
+            echo "Generating Dockerfile"
+            cat > "$DOCKERFILE" <<EOF
+          FROM $BASE_IMAGE
+
+          LABEL org.opencontainers.image.source="https://github.com/${{ github.repository }}"
+          LABEL org.opencontainers.image.description="${{ steps.config.outputs.description }}"
+          LABEL org.opencontainers.image.version="$VERSION"
+          LABEL org.opencontainers.image.vendor="CloudPirates"
+          LABEL org.opencontainers.image.licenses="Apache-2.0"
+          EOF
+          fi
+
+          echo "Generated Dockerfile:"
+          cat "$DOCKERFILE"
+
+      - name: Build and push ARM64 cpuv1
+        id: build
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: images/${{ matrix.image }}
+          file: images/${{ matrix.image }}/Dockerfile.generated
+          platforms: ${{ steps.config.outputs.platform }}
+          push: ${{ steps.config.outputs.should_push }}
+          tags: ${{ steps.config.outputs.tags }}
+          cache-from: type=gha,scope=${{ matrix.image }}-arm64-cpuv1
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}-arm64-cpuv1
+          labels: |
+            org.opencontainers.image.source=${{ github.event.repository.html_url }}
+            org.opencontainers.image.created=${{ github.event.head_commit.timestamp }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          sbom: true
+          provenance: true
+          outputs: type=image,name=target,annotation-index.org.opencontainers.image.description=${{ steps.config.outputs.description }}
+          build-args: |
+            BUILDKIT_PROGRESS=plain
+            GOAMD64=v1
+
+  # Merge cpuv1 multi-arch manifests and perform security scanning/signing
+  merge-and-publish-cpuv1:
+    needs: [detect-changes, build-amd64-cpuv1, build-arm64-cpuv1]
+    if: |
+      needs.detect-changes.outputs.matrix != '' &&
+      fromJson(needs.detect-changes.outputs.matrix).include[0].image != 'none' &&
+      (github.event.inputs.push_to_dockerhub == 'true' || github.event.inputs.push_to_ghcr == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+
+      - name: Check credentials availability
+        id: check-creds
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          DOCKERHUB_REPOSITORY: ${{ secrets.DOCKERHUB_REPOSITORY }}
+          COSIGN_KEY: ${{ secrets.COSIGN_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+        run: |
+          HAS_DOCKERHUB_CREDS="false"
+          HAS_COSIGN_CREDS="false"
+
+          if [ -n "$DOCKERHUB_USERNAME" ] && [ -n "$DOCKERHUB_TOKEN" ]; then
+            HAS_DOCKERHUB_CREDS="true"
+            echo "✓ Docker Hub credentials available"
+          else
+            echo "⚠ Docker Hub credentials not available"
+          fi
+
+          if [ -n "$COSIGN_KEY" ] && [ -n "$COSIGN_PASSWORD" ]; then
+            HAS_COSIGN_CREDS="true"
+            echo "✓ Cosign credentials available"
+          else
+            echo "⚠ Cosign credentials not available"
+          fi
+
+          echo "dockerhub=$HAS_DOCKERHUB_CREDS" >> $GITHUB_OUTPUT
+          echo "cosign=$HAS_COSIGN_CREDS" >> $GITHUB_OUTPUT
+
+          # Set repository name (fallback to image name if not set)
+          REPO_NAME="${DOCKERHUB_REPOSITORY:-${{ matrix.image }}}"
+          echo "dockerhub_repo=$REPO_NAME" >> $GITHUB_OUTPUT
+          echo "Docker Hub repository: $REPO_NAME"
+
+      - name: Login to Docker Hub
+        if: github.event.inputs.push_to_dockerhub == 'true' && steps.check-creds.outputs.dockerhub == 'true'
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Login to GHCR
+        if: github.event.inputs.push_to_ghcr == 'true'
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Parse image configuration
+        id: config
+        run: |
+          set -euo pipefail
+
+          IMAGE_NAME="${{ matrix.image }}"
+          CONFIG_FILE="images/$IMAGE_NAME/config.yaml"
+
+          VERSION=$(yq eval '.version' "$CONFIG_FILE")
+          REPO_OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+
+          # Apply tag suffix if provided
+          TAG_SUFFIX=""
+          if [ -n "${{ github.event.inputs.tag_suffix }}" ]; then
+            TAG_SUFFIX="-${{ github.event.inputs.tag_suffix }}"
+          fi
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag_suffix=$TAG_SUFFIX" >> $GITHUB_OUTPUT
+          echo "repo_owner=$REPO_OWNER" >> $GITHUB_OUTPUT
+
+      - name: Create cpuv1 multi-arch manifest
+        run: |
+          set -euo pipefail
+
+          IMAGE_NAME="${{ matrix.image }}"
+          VERSION="${{ steps.config.outputs.version }}"
+          TAG_SUFFIX="${{ steps.config.outputs.tag_suffix }}"
+          REPO_OWNER="${{ steps.config.outputs.repo_owner }}"
+
+          # Create and push cpuv1 multi-arch manifests
+          if [ "${{ github.event.inputs.push_to_dockerhub }}" = "true" ] && [ "${{ steps.check-creds.outputs.dockerhub }}" = "true" ]; then
+            DOCKERHUB_REPO="${{ steps.check-creds.outputs.dockerhub_repo }}"
+
+            echo "Creating Docker Hub cpuv1 multi-arch manifest..."
+            docker buildx imagetools create -t ${DOCKERHUB_REPO}:$VERSION$TAG_SUFFIX-cpuv1 \
+              ${DOCKERHUB_REPO}:$VERSION$TAG_SUFFIX-cpuv1-amd64 \
+              ${DOCKERHUB_REPO}:$VERSION$TAG_SUFFIX-cpuv1-arm64
+
+            # Create latest-cpuv1 tag if no suffix
+            if [ -z "$TAG_SUFFIX" ]; then
+              docker buildx imagetools create -t ${DOCKERHUB_REPO}:latest-cpuv1 \
+                ${DOCKERHUB_REPO}:$VERSION-cpuv1-amd64 \
+                ${DOCKERHUB_REPO}:$VERSION-cpuv1-arm64
+            fi
+          fi
+
+          if [ "${{ github.event.inputs.push_to_ghcr }}" = "true" ]; then
+            echo "Creating GHCR cpuv1 multi-arch manifest..."
+            docker buildx imagetools create -t ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION$TAG_SUFFIX-cpuv1 \
+              ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION$TAG_SUFFIX-cpuv1-amd64 \
+              ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION$TAG_SUFFIX-cpuv1-arm64
+
+            # Create latest-cpuv1 tag if no suffix
+            if [ -z "$TAG_SUFFIX" ]; then
+              docker buildx imagetools create -t ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:latest-cpuv1 \
+                ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION-cpuv1-amd64 \
+                ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION-cpuv1-arm64
+            fi
+          fi
+
+          echo "✅ CPUv1 multi-arch manifest created successfully"
+
+      - name: Clean up cpuv1 platform-specific tags
+        run: |
+          set -euo pipefail
+
+          IMAGE_NAME="${{ matrix.image }}"
+          VERSION="${{ steps.config.outputs.version }}"
+          TAG_SUFFIX="${{ steps.config.outputs.tag_suffix }}"
+          REPO_OWNER="${{ steps.config.outputs.repo_owner }}"
+
+          echo "Cleaning up intermediate cpuv1 platform-specific tags..."
+
+          if [ "${{ github.event.inputs.push_to_ghcr }}" = "true" ]; then
+            echo "Deleting GHCR cpuv1 platform-specific tags..."
+
+            for ARCH in amd64 arm64; do
+              TAG="$VERSION$TAG_SUFFIX-cpuv1-$ARCH"
+              echo "Attempting to delete ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$TAG"
+
+              PACKAGE_VERSION_ID=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+                "https://api.github.com/users/$REPO_OWNER/packages/container/container-images%2F$IMAGE_NAME/versions" \
+                | jq -r ".[] | select(.metadata.container.tags[] | contains(\"$TAG\")) | .id" | head -n1)
+
+              if [ -n "$PACKAGE_VERSION_ID" ] && [ "$PACKAGE_VERSION_ID" != "null" ]; then
+                curl -X DELETE -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+                  "https://api.github.com/users/$REPO_OWNER/packages/container/container-images%2F$IMAGE_NAME/versions/$PACKAGE_VERSION_ID" \
+                  && echo "✅ Deleted $TAG" || echo "⚠️ Failed to delete $TAG"
+              else
+                echo "⚠️ Could not find version ID for $TAG"
+              fi
+            done
+          fi
+
+          if [ "${{ github.event.inputs.push_to_dockerhub }}" = "true" ] && [ "${{ steps.check-creds.outputs.dockerhub }}" = "true" ]; then
+            echo "Deleting Docker Hub cpuv1 platform-specific tags..."
+            DOCKERHUB_USERNAME="${{ secrets.DOCKERHUB_USERNAME }}"
+            DOCKERHUB_REPO="${{ steps.check-creds.outputs.dockerhub_repo }}"
+
+            DOCKERHUB_TOKEN=$(curl -s -X POST \
+              -H "Content-Type: application/json" \
+              -d "{\"username\":\"$DOCKERHUB_USERNAME\",\"password\":\"${{ secrets.DOCKERHUB_TOKEN }}\"}" \
+              https://hub.docker.com/v2/users/login/ | jq -r .token)
+
+            if [ -n "$DOCKERHUB_TOKEN" ] && [ "$DOCKERHUB_TOKEN" != "null" ]; then
+              for ARCH in amd64 arm64; do
+                TAG="$VERSION$TAG_SUFFIX-cpuv1-$ARCH"
+                echo "Attempting to delete Docker Hub tag: $TAG"
+
+                curl -X DELETE \
+                  -H "Authorization: JWT $DOCKERHUB_TOKEN" \
+                  "https://hub.docker.com/v2/repositories/$DOCKERHUB_REPO/tags/$TAG/" \
+                  && echo "✅ Deleted $TAG from Docker Hub" || echo "⚠️ Failed to delete $TAG from Docker Hub"
+              done
+            else
+              echo "⚠️ Failed to get Docker Hub token for cleanup"
+            fi
+          fi
+
+      - name: Wait for cpuv1 image to be available
+        if: github.event.inputs.push_to_ghcr == 'true' && github.event.inputs.run_security_scan == 'true'
+        run: |
+          set -euo pipefail
+
+          IMAGE_NAME="${{ matrix.image }}"
+          VERSION="${{ steps.config.outputs.version }}"
+          TAG_SUFFIX="${{ steps.config.outputs.tag_suffix }}"
+          REPO_OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          IMAGE_REF="ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION$TAG_SUFFIX-cpuv1"
+
+          echo "Waiting for image to be available: $IMAGE_REF"
+
+          RETRIES=30
+          until docker pull "$IMAGE_REF" >/dev/null 2>&1; do
+            RETRIES=$((RETRIES - 1))
+            if [ $RETRIES -eq 0 ]; then
+              echo "⚠️  Image not available yet, continuing anyway"
+              break
+            fi
+            echo "Waiting for image... ($RETRIES attempts remaining)"
+            sleep 2
+          done
+
+          echo "Image is available"
+
+      - name: Set image reference for scanning
+        if: github.event.inputs.run_security_scan == 'true' && github.event.inputs.push_to_ghcr == 'true'
+        id: scan-ref
+        run: |
+          REPO_OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+
+          TAG_SUFFIX=""
+          if [ -n "${{ github.event.inputs.tag_suffix }}" ]; then
+            TAG_SUFFIX="-${{ github.event.inputs.tag_suffix }}"
+          fi
+
+          IMAGE_REF="ghcr.io/$REPO_OWNER/container-images/${{ matrix.image }}:${{ steps.config.outputs.version }}$TAG_SUFFIX-cpuv1"
+          echo "image_ref=$IMAGE_REF" >> $GITHUB_OUTPUT
+          echo "Scanning cpuv1 image: $IMAGE_REF"
+
+      - name: Run Trivy vulnerability scanner on cpuv1
+        if: github.event.inputs.run_security_scan == 'true' && github.event.inputs.push_to_ghcr == 'true'
+        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
+        with:
+          image-ref: ${{ steps.scan-ref.outputs.image_ref }}
+          format: 'sarif'
+          output: 'trivy-results-cpuv1.sarif'
+          severity: 'CRITICAL,HIGH'
+        continue-on-error: true
+
+      - name: Upload Trivy cpuv1 results to GitHub Security
+        if: github.event.inputs.run_security_scan == 'true' && github.event.inputs.push_to_ghcr == 'true'
+        uses: github/codeql-action/upload-sarif@4e94bd11f71e507f7f87df81788dff88d1dacbfb # v3.28.5
+        with:
+          sarif_file: 'trivy-results-cpuv1.sarif'
+        continue-on-error: true
+
+      - name: Run Trivy for cpuv1 summary
+        if: github.event.inputs.run_security_scan == 'true' && github.event.inputs.push_to_ghcr == 'true'
+        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
+        with:
+          image-ref: ${{ steps.scan-ref.outputs.image_ref }}
+          format: 'table'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+        continue-on-error: true
+
+      - name: Install cosign
+        if: github.event.inputs.sign_images == 'true' && steps.check-creds.outputs.cosign == 'true'
+        uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad # v4.0.0
+
+      - name: Sign cpuv1 images
+        if: github.event.inputs.sign_images == 'true' && steps.check-creds.outputs.cosign == 'true'
+        env:
+          COSIGN_KEY: ${{ secrets.COSIGN_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          IMAGE_NAME="${{ matrix.image }}"
+          VERSION="${{ steps.config.outputs.version }}"
+          REPO_OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+
+          TAG_SUFFIX=""
+          if [ -n "${{ github.event.inputs.tag_suffix }}" ]; then
+            TAG_SUFFIX="-${{ github.event.inputs.tag_suffix }}"
+          fi
+
+          # Sign Docker Hub cpuv1 image if push is enabled
+          if [ "${{ github.event.inputs.push_to_dockerhub }}" = "true" ] && [ "${{ steps.check-creds.outputs.dockerhub }}" = "true" ]; then
+            DOCKERHUB_REPO="${{ steps.check-creds.outputs.dockerhub_repo }}"
+            echo "Signing Docker Hub cpuv1 image..."
+            cosign sign -y --key env://COSIGN_KEY \
+              ${DOCKERHUB_REPO}:$VERSION$TAG_SUFFIX-cpuv1
+          fi
+
+          # Sign GHCR cpuv1 image if push is enabled
+          if [ "${{ github.event.inputs.push_to_ghcr }}" = "true" ]; then
+            echo "Signing GHCR cpuv1 image..."
+            cosign sign -y --key env://COSIGN_KEY \
+              ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION$TAG_SUFFIX-cpuv1
+          fi
+
+          echo "Successfully signed cpuv1 images for $IMAGE_NAME:$VERSION$TAG_SUFFIX-cpuv1"
+
+      - name: Generate cpuv1 job summary
+        run: |
+          IMAGE_NAME="${{ matrix.image }}"
+          VERSION="${{ steps.config.outputs.version }}"
+          TAG_SUFFIX="${{ steps.config.outputs.tag_suffix }}"
+
+          echo "## Multi-Arch CPUv1 Container Image Built" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Successfully built **$IMAGE_NAME:$VERSION$TAG_SUFFIX-cpuv1** for older CPUs (baseline x86-64)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### Build Configuration" >> $GITHUB_STEP_SUMMARY
+          echo "- **Platforms**: linux/amd64, linux/arm64" >> $GITHUB_STEP_SUMMARY
+          echo "- **CPU Target**: v1 (baseline x86-64, compatible with older CPUs)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Build Method**: Native builds on platform-specific runners (no QEMU)" >> $GITHUB_STEP_SUMMARY
+          if [ -n "$TAG_SUFFIX" ]; then
+            echo "- **Tag Suffix**: $TAG_SUFFIX" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### Publishing Status" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ github.event.inputs.push_to_dockerhub }}" = "true" ]; then
+            if [ "${{ steps.check-creds.outputs.dockerhub }}" = "true" ]; then
+              echo "✅ Published to Docker Hub" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "⚠️  Docker Hub credentials not available - publishing skipped" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "⏭️  Docker Hub push disabled" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ "${{ github.event.inputs.push_to_ghcr }}" = "true" ]; then
+            echo "✅ Published to GHCR" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⏭️  GHCR push disabled" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### Security" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ github.event.inputs.sign_images }}" = "true" ]; then
+            if [ "${{ steps.check-creds.outputs.cosign }}" = "true" ]; then
+              echo "✅ Images signed with Cosign" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "⚠️  Cosign credentials not available - signing skipped" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "⏭️  Image signing disabled" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "✅ SBOM generated" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Provenance attestation created" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ github.event.inputs.run_security_scan }}" = "true" ]; then
+            if [ "${{ github.event.inputs.push_to_ghcr }}" = "true" ]; then
+              echo "✅ Vulnerability scan completed (check Security tab for details)" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "⚠️  Security scan requires GHCR push to be enabled" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "⏭️  Security scan disabled" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          REPO_OWNER="${{ steps.config.outputs.repo_owner }}"
+
+          echo "### Pull Commands (CPUv1 - for older CPUs)" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ github.event.inputs.push_to_dockerhub }}" = "true" ] && [ "${{ steps.check-creds.outputs.dockerhub }}" = "true" ]; then
+            DOCKERHUB_REPO="${{ steps.check-creds.outputs.dockerhub_repo }}"
+            echo "# From Docker Hub (multi-arch, cpuv1)" >> $GITHUB_STEP_SUMMARY
+            echo "docker pull ${DOCKERHUB_REPO}:$VERSION$TAG_SUFFIX-cpuv1" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ "${{ github.event.inputs.push_to_ghcr }}" = "true" ]; then
+            echo "# From GHCR (multi-arch, cpuv1)" >> $GITHUB_STEP_SUMMARY
+            echo "docker pull ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION$TAG_SUFFIX-cpuv1" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
