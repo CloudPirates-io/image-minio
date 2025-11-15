@@ -1,4 +1,4 @@
-ARG RELEASE=RELEASE.2025-10-15T17-29-55Z
+ARG RELEASE=null
 
 # Build stage - compile MinIO from source
 FROM golang:1.24-alpine@sha256:8f8959f38530d159bf71d0b3eb0c547dc61e7959d8225d1599cf762477384923 AS build

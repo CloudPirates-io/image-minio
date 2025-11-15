@@ -1,5 +1,5 @@
 base_image: "registry.access.redhat.com/ubi9/ubi-micro:latest"
-version: "RELEASE.2025-10-15T17-29-55Z"
+version: "null"
 description: "MinIO High-Performance Object Storage - Downloads pre-compiled binaries from dl.min.io"
 
 # Default platforms (can be overridden with --platform flag)
@@ -8,4 +8,4 @@ description: "MinIO High-Performance Object Storage - Downloads pre-compiled bin
 platforms: "linux/amd64,linux/arm64"
 
 build_args:
-  RELEASE: "RELEASE.2025-10-15T17-29-55Z"
+  RELEASE: "null"
