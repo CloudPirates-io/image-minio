@@ -42,14 +42,14 @@ RUN echo "minio:x:1000:1000:MinIO User:/home/minio:/bin/sh" >> /tmp/passwd && \
     echo "minio:x:1000:" >> /tmp/group
 
 # Runtime stage
-FROM registry.access.redhat.com/ubi9/ubi-micro:latest@sha256:aff810919642215e15c993b9bbc110dbcc446608730ad24499dafd9df7a8f8f4
+FROM registry.access.redhat.com/ubi8/ubi-micro:latest@sha256:40b075b45db465f0d34ae2baddbe5700c578ca9f2b33f0869493556ff1539d28
 
 ARG RELEASE
 
-LABEL org.opencontainers.image.source="https://github.com/zOnlyKroks/container-images" \
+LABEL org.opencontainers.image.source="https://github.com/CloudPirates-io/image-minio" \
       org.opencontainers.image.description="MinIO High-Performance Object Storage (Security-First, Built from Source)" \
       org.opencontainers.image.version="${RELEASE}" \
-      org.opencontainers.image.vendor="zOnlyKroks" \
+      org.opencontainers.image.vendor="CloudPirates" \
       org.opencontainers.image.licenses="AGPL-3.0" \
       name="MinIO" \
       vendor="MinIO Inc <dev@min.io>" \
