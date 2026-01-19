@@ -42,7 +42,7 @@ RUN echo "minio:x:1000:1000:MinIO User:/home/minio:/bin/sh" >> /tmp/passwd && \
     echo "minio:x:1000:" >> /tmp/group
 
 # Runtime stage
-FROM registry.access.redhat.com/ubi8/ubi-micro:latest@sha256:40b075b45db465f0d34ae2baddbe5700c578ca9f2b33f0869493556ff1539d28
+FROM registry.access.redhat.com/ubi8/ubi-micro:latest@sha256:00da037bbdbacdeb2bd15c4e8f4a4a89b56063757f14c52ef6e68766831acd7b
 
 ARG RELEASE
 
