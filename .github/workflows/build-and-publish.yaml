@@ -662,11 +662,19 @@ jobs:
               ${DOCKERHUB_REPO}:$VERSION$TAG_SUFFIX$VARIANT_SUFFIX-amd64 \
               ${DOCKERHUB_REPO}:$VERSION$TAG_SUFFIX$VARIANT_SUFFIX-arm64
 
-            # Create latest tag if no suffix and vanilla variant
-            if [ -z "$TAG_SUFFIX" ] && [ -z "$VARIANT_SUFFIX" ]; then
-              docker buildx imagetools create -t ${DOCKERHUB_REPO}:latest \
-                ${DOCKERHUB_REPO}:$VERSION-amd64 \
-                ${DOCKERHUB_REPO}:$VERSION-arm64
+            # Create latest tag (vanilla or latest-hardened for hardened)
+            if [ -z "$TAG_SUFFIX" ]; then
+              if [ -z "$VARIANT_SUFFIX" ]; then
+                # Vanilla: create 'latest' tag
+                docker buildx imagetools create -t ${DOCKERHUB_REPO}:latest \
+                  ${DOCKERHUB_REPO}:$VERSION-amd64 \
+                  ${DOCKERHUB_REPO}:$VERSION-arm64
+              else
+                # Hardened: create 'latest-hardened' tag
+                docker buildx imagetools create -t ${DOCKERHUB_REPO}:latest$VARIANT_SUFFIX \
+                  ${DOCKERHUB_REPO}:$VERSION$VARIANT_SUFFIX-amd64 \
+                  ${DOCKERHUB_REPO}:$VERSION$VARIANT_SUFFIX-arm64
+              fi
             fi
           fi
 
@@ -676,11 +684,19 @@ jobs:
               ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION$TAG_SUFFIX$VARIANT_SUFFIX-amd64 \
               ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION$TAG_SUFFIX$VARIANT_SUFFIX-arm64
 
-            # Create latest tag if no suffix and vanilla variant
-            if [ -z "$TAG_SUFFIX" ] && [ -z "$VARIANT_SUFFIX" ]; then
-              docker buildx imagetools create -t ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:latest \
-                ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION-amd64 \
-                ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION-arm64
+            # Create latest tag (vanilla or latest-hardened for hardened)
+            if [ -z "$TAG_SUFFIX" ]; then
+              if [ -z "$VARIANT_SUFFIX" ]; then
+                # Vanilla: create 'latest' tag
+                docker buildx imagetools create -t ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:latest \
+                  ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION-amd64 \
+                  ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION-arm64
+              else
+                # Hardened: create 'latest-hardened' tag
+                docker buildx imagetools create -t ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:latest$VARIANT_SUFFIX \
+                  ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION$VARIANT_SUFFIX-amd64 \
+                  ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION$VARIANT_SUFFIX-arm64
+              fi
             fi
           fi
 
