@@ -752,7 +752,7 @@ jobs:
           fi
 
       - name: Wait for image to be available
-        if: github.event.inputs.push_to_ghcr == 'true' && github.event.inputs.run_security_scan == 'true'
+        if: github.event.inputs.push_to_ghcr == 'true' && github.event.inputs.run_security_scan == 'true' && matrix.variant == 'hardened'
         run: |
           set -euo pipefail
 
@@ -778,7 +778,7 @@ jobs:
           echo "Image is available"
 
       - name: Set image reference for scanning
-        if: github.event.inputs.run_security_scan == 'true' && github.event.inputs.push_to_ghcr == 'true'
+        if: github.event.inputs.run_security_scan == 'true' && github.event.inputs.push_to_ghcr == 'true' && matrix.variant == 'hardened'
         id: scan-ref
         run: |
           REPO_OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
@@ -801,7 +801,7 @@ jobs:
           echo "Scanning image: $IMAGE_REF"
 
       - name: Run Trivy vulnerability scanner
-        if: github.event.inputs.run_security_scan == 'true' && github.event.inputs.push_to_ghcr == 'true'
+        if: github.event.inputs.run_security_scan == 'true' && github.event.inputs.push_to_ghcr == 'true' && matrix.variant == 'hardened'
         uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
         with:
           image-ref: ${{ steps.scan-ref.outputs.image_ref }}
@@ -811,14 +811,14 @@ jobs:
         continue-on-error: true
 
       - name: Upload Trivy results to GitHub Security
-        if: github.event.inputs.run_security_scan == 'true' && github.event.inputs.push_to_ghcr == 'true'
+        if: github.event.inputs.run_security_scan == 'true' && github.event.inputs.push_to_ghcr == 'true' && matrix.variant == 'hardened'
         uses: github/codeql-action/upload-sarif@b20883b0cd1f46c72ae0ba6d1090936928f9fa30 # v3.28.5
         with:
           sarif_file: 'trivy-results.sarif'
         continue-on-error: true
 
       - name: Run Trivy for summary
-        if: github.event.inputs.run_security_scan == 'true' && github.event.inputs.push_to_ghcr == 'true'
+        if: github.event.inputs.run_security_scan == 'true' && github.event.inputs.push_to_ghcr == 'true' && matrix.variant == 'hardened'
         uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
         with:
           image-ref: ${{ steps.scan-ref.outputs.image_ref }}
@@ -930,10 +930,14 @@ jobs:
           echo "✅ Provenance attestation created" >> $GITHUB_STEP_SUMMARY
 
           if [ "${{ github.event.inputs.run_security_scan }}" = "true" ]; then
-            if [ "${{ github.event.inputs.push_to_ghcr }}" = "true" ]; then
-              echo "✅ Vulnerability scan completed (check Security tab for details)" >> $GITHUB_STEP_SUMMARY
+            if [ "$VARIANT" = "hardened" ]; then
+              if [ "${{ github.event.inputs.push_to_ghcr }}" = "true" ]; then
+                echo "✅ Vulnerability scan completed (check Security tab for details)" >> $GITHUB_STEP_SUMMARY
+              else
+                echo "⚠️  Security scan requires GHCR push to be enabled" >> $GITHUB_STEP_SUMMARY
+              fi
             else
-              echo "⚠️  Security scan requires GHCR push to be enabled" >> $GITHUB_STEP_SUMMARY
+              echo "⏭️  Security scan only runs on hardened variant" >> $GITHUB_STEP_SUMMARY
             fi
           else
             echo "⏭️  Security scan disabled" >> $GITHUB_STEP_SUMMARY
@@ -1549,7 +1553,7 @@ jobs:
           fi
 
       - name: Wait for cpuv1 image to be available
-        if: github.event.inputs.push_to_ghcr == 'true' && github.event.inputs.run_security_scan == 'true'
+        if: github.event.inputs.push_to_ghcr == 'true' && github.event.inputs.run_security_scan == 'true' && matrix.variant == 'hardened'
         run: |
           set -euo pipefail
 
@@ -1575,7 +1579,7 @@ jobs:
           echo "Image is available"
 
       - name: Set image reference for scanning
-        if: github.event.inputs.run_security_scan == 'true' && github.event.inputs.push_to_ghcr == 'true'
+        if: github.event.inputs.run_security_scan == 'true' && github.event.inputs.push_to_ghcr == 'true' && matrix.variant == 'hardened'
         id: scan-ref
         run: |
           REPO_OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
@@ -1706,10 +1710,14 @@ jobs:
           echo "✅ Provenance attestation created" >> $GITHUB_STEP_SUMMARY
 
           if [ "${{ github.event.inputs.run_security_scan }}" = "true" ]; then
-            if [ "${{ github.event.inputs.push_to_ghcr }}" = "true" ]; then
-              echo "✅ Vulnerability scan completed (check Security tab for details)" >> $GITHUB_STEP_SUMMARY
+            if [ "$VARIANT" = "hardened" ]; then
+              if [ "${{ github.event.inputs.push_to_ghcr }}" = "true" ]; then
+                echo "✅ Vulnerability scan completed (check Security tab for details)" >> $GITHUB_STEP_SUMMARY
+              else
+                echo "⚠️  Security scan requires GHCR push to be enabled" >> $GITHUB_STEP_SUMMARY
+              fi
             else
-              echo "⚠️  Security scan requires GHCR push to be enabled" >> $GITHUB_STEP_SUMMARY
+              echo "⏭️  Security scan only runs on hardened variant" >> $GITHUB_STEP_SUMMARY
             fi
           else
             echo "⏭️  Security scan disabled" >> $GITHUB_STEP_SUMMARY
