@@ -815,6 +815,7 @@ jobs:
         uses: github/codeql-action/upload-sarif@b20883b0cd1f46c72ae0ba6d1090936928f9fa30 # v3.28.5
         with:
           sarif_file: 'trivy-results.sarif'
+          category: 'trivy-${{ matrix.image }}-${{ matrix.variant }}'
         continue-on-error: true
 
       - name: Run Trivy for summary
@@ -1647,6 +1648,7 @@ jobs:
         uses: github/codeql-action/upload-sarif@b20883b0cd1f46c72ae0ba6d1090936928f9fa30 # v3.28.5
         with:
           sarif_file: 'trivy-results-cpuv1.sarif'
+          category: 'trivy-${{ matrix.image }}-${{ matrix.variant }}-cpuv1'
         continue-on-error: true
 
       - name: Run Trivy for cpuv1 summary
