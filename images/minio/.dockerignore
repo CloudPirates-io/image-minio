@@ -1,0 +1,3 @@
+# Ignore the full MinIO source directory
+# We only need the .patch files, not the entire minio/ source tree
+patches/minio/
