@@ -1095,6 +1095,7 @@ jobs:
           cat "$DOCKERFILE"
 
       - name: Build and push AMD64 cpuv1
+        if: matrix.variant != 'hardened'
         id: build
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
         with:
@@ -1292,6 +1293,7 @@ jobs:
           cat "$DOCKERFILE"
 
       - name: Build and push ARM64 cpuv1
+        if: matrix.variant != 'hardened'
         id: build
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
         with:
@@ -1420,6 +1422,7 @@ jobs:
           echo "repo_owner=$REPO_OWNER" >> $GITHUB_OUTPUT
 
       - name: Create cpuv1 multi-arch manifest
+        if: matrix.variant != 'hardened'
         run: |
           set -euo pipefail
 
@@ -1542,7 +1545,7 @@ jobs:
         uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad # v4.0.0
 
       - name: Sign cpuv1 images
-        if: github.event.inputs.sign_images == 'true' && steps.check-creds.outputs.cosign == 'true'
+        if: github.event.inputs.sign_images == 'true' && steps.check-creds.outputs.cosign == 'true' && matrix.variant != 'hardened'
         env:
           COSIGN_KEY: ${{ secrets.COSIGN_KEY }}
           COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}

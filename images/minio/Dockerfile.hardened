@@ -67,8 +67,8 @@ RUN test -x /go/bin/minio && \
 RUN echo "minio:x:1000:1000:MinIO User:/home/minio:/bin/sh" >> /tmp/passwd && \
     echo "minio:x:1000:" >> /tmp/group
 
-# Runtime stage
-FROM registry.access.redhat.com/ubi8/ubi-micro:latest
+# Runtime stage - using UBI9 for hardened builds (newer packages, better security)
+FROM registry.access.redhat.com/ubi9/ubi-micro:latest
 
 ARG RELEASE
 
