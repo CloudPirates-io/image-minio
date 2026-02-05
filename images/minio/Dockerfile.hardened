@@ -36,6 +36,13 @@ RUN cd minio && \
         echo "Warning: No patches found in patches/ directory"; \
     fi
 
+# Download updated dependencies after patching (bypass cache to ensure fresh versions)
+RUN cd minio && \
+    echo "Downloading updated dependencies..." && \
+    go mod download && \
+    go mod verify && \
+    echo "Dependencies downloaded and verified"
+
 # Build MinIO with patches applied
 # Use build cache mounts to significantly speed up compilation
 RUN --mount=type=cache,target=/go/pkg/mod \
