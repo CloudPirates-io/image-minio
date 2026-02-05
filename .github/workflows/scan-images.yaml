@@ -1,0 +1,289 @@
+name: Security Scan Container Images
+
+on:
+  workflow_dispatch:
+    inputs:
+      images:
+        description: 'Images to scan (comma-separated list or "all")'
+        required: true
+        type: string
+        default: 'all'
+      variant:
+        description: 'Image variant to scan'
+        required: true
+        type: choice
+        options:
+          - vanilla
+          - hardened
+          - all
+        default: 'hardened'
+      image_version:
+        description: 'Image version/tag to scan (e.g., "RELEASE.2025-10-15T17-29-55Z" or "latest")'
+        required: true
+        type: string
+        default: 'latest'
+      registry:
+        description: 'Registry to pull images from'
+        required: true
+        type: choice
+        options:
+          - ghcr
+          - dockerhub
+        default: 'ghcr'
+      severity:
+        description: 'Vulnerability severity levels to report'
+        required: false
+        type: string
+        default: 'CRITICAL,HIGH,MEDIUM'
+
+jobs:
+  setup-scan-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set scan matrix
+        id: set-matrix
+        run: |
+          set -euo pipefail
+
+          INPUT_IMAGES="${{ github.event.inputs.images }}"
+          VARIANT="${{ github.event.inputs.variant }}"
+
+          # Determine which images to scan
+          if [ "$INPUT_IMAGES" = "all" ]; then
+            IMAGES=$(ls -1 images/ | tr '\n' ' ')
+            echo "Scanning all images: $IMAGES"
+          else
+            IMAGES=$(echo "$INPUT_IMAGES" | tr ',' ' ')
+            echo "Scanning specific images: $IMAGES"
+          fi
+
+          # Determine which variants to scan
+          VARIANTS=""
+          if [ "$VARIANT" = "all" ]; then
+            VARIANTS="vanilla hardened"
+          else
+            VARIANTS="$VARIANT"
+          fi
+
+          # Build matrix
+          JSON_ARRAY="["
+          for img in $IMAGES; do
+            if [ -d "images/$img" ]; then
+              for variant in $VARIANTS; do
+                JSON_ARRAY="$JSON_ARRAY{\"image\":\"$img\",\"variant\":\"$variant\"},"
+              done
+            fi
+          done
+
+          if [ "$JSON_ARRAY" = "[" ]; then
+            echo "No valid images found"
+            JSON_ARRAY="[{\"image\":\"none\",\"variant\":\"vanilla\"}]"
+          else
+            JSON_ARRAY="${JSON_ARRAY%,}]"
+          fi
+
+          echo "matrix={\"include\":$JSON_ARRAY}" >> $GITHUB_OUTPUT
+          echo "Scan matrix: $JSON_ARRAY"
+
+  scan-images:
+    needs: setup-scan-matrix
+    if: fromJson(needs.setup-scan-matrix.outputs.matrix).include[0].image != 'none'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.setup-scan-matrix.outputs.matrix) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Login to GHCR
+        if: github.event.inputs.registry == 'ghcr'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check Docker Hub credentials
+        if: github.event.inputs.registry == 'dockerhub'
+        id: check-dockerhub
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          if [ -n "$DOCKERHUB_USERNAME" ] && [ -n "$DOCKERHUB_TOKEN" ]; then
+            echo "has_creds=true" >> $GITHUB_OUTPUT
+            echo "✓ Docker Hub credentials available"
+          else
+            echo "has_creds=false" >> $GITHUB_OUTPUT
+            echo "⚠ Docker Hub credentials not available"
+          fi
+
+      - name: Login to Docker Hub
+        if: github.event.inputs.registry == 'dockerhub' && steps.check-dockerhub.outputs.has_creds == 'true'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Determine image reference
+        id: image-ref
+        run: |
+          set -euo pipefail
+
+          IMAGE_NAME="${{ matrix.image }}"
+          VARIANT="${{ matrix.variant }}"
+          VERSION="${{ github.event.inputs.image_version }}"
+          REGISTRY="${{ github.event.inputs.registry }}"
+          REPO_OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+
+          # Apply variant suffix for hardened builds (unless scanning 'latest' tag)
+          VARIANT_SUFFIX=""
+          if [ "$VARIANT" = "hardened" ] && [ "$VERSION" != "latest" ]; then
+            VARIANT_SUFFIX="-hardened"
+          fi
+
+          # Construct image reference based on registry
+          if [ "$REGISTRY" = "ghcr" ]; then
+            IMAGE_REF="ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION$VARIANT_SUFFIX"
+          else
+            # Docker Hub - need to get repository name
+            DOCKERHUB_REPO="${{ secrets.DOCKERHUB_REPOSITORY }}"
+            if [ -z "$DOCKERHUB_REPO" ]; then
+              DOCKERHUB_REPO="$IMAGE_NAME"
+            fi
+            IMAGE_REF="${DOCKERHUB_REPO}:$VERSION$VARIANT_SUFFIX"
+          fi
+
+          echo "image_ref=$IMAGE_REF" >> $GITHUB_OUTPUT
+          echo "Scanning image: $IMAGE_REF"
+
+      - name: Pull image
+        run: |
+          IMAGE_REF="${{ steps.image-ref.outputs.image_ref }}"
+          echo "Pulling image: $IMAGE_REF"
+          docker pull "$IMAGE_REF"
+
+      - name: Run Trivy vulnerability scanner (SARIF)
+        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
+        with:
+          image-ref: ${{ steps.image-ref.outputs.image_ref }}
+          format: 'sarif'
+          output: 'trivy-results-${{ matrix.image }}-${{ matrix.variant }}.sarif'
+          severity: ${{ github.event.inputs.severity }}
+        continue-on-error: true
+
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@b20883b0cd1f46c72ae0ba6d1090936928f9fa30 # v3.28.5
+        with:
+          sarif_file: 'trivy-results-${{ matrix.image }}-${{ matrix.variant }}.sarif'
+          category: 'trivy-${{ matrix.image }}-${{ matrix.variant }}'
+        continue-on-error: true
+
+      - name: Run Trivy vulnerability scanner (Table)
+        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
+        with:
+          image-ref: ${{ steps.image-ref.outputs.image_ref }}
+          format: 'table'
+          severity: ${{ github.event.inputs.severity }}
+
+      - name: Run Trivy vulnerability scanner (JSON)
+        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
+        with:
+          image-ref: ${{ steps.image-ref.outputs.image_ref }}
+          format: 'json'
+          output: 'trivy-results-${{ matrix.image }}-${{ matrix.variant }}.json'
+          severity: ${{ github.event.inputs.severity }}
+        continue-on-error: true
+
+      - name: Parse scan results
+        id: parse-results
+        run: |
+          set -euo pipefail
+
+          JSON_FILE="trivy-results-${{ matrix.image }}-${{ matrix.variant }}.json"
+
+          if [ ! -f "$JSON_FILE" ]; then
+            echo "⚠️ JSON results file not found"
+            echo "critical=0" >> $GITHUB_OUTPUT
+            echo "high=0" >> $GITHUB_OUTPUT
+            echo "medium=0" >> $GITHUB_OUTPUT
+            echo "low=0" >> $GITHUB_OUTPUT
+            echo "total=0" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Count vulnerabilities by severity
+          CRITICAL=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' "$JSON_FILE" || echo "0")
+          HIGH=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' "$JSON_FILE" || echo "0")
+          MEDIUM=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="MEDIUM")] | length' "$JSON_FILE" || echo "0")
+          LOW=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="LOW")] | length' "$JSON_FILE" || echo "0")
+          TOTAL=$((CRITICAL + HIGH + MEDIUM + LOW))
+
+          echo "critical=$CRITICAL" >> $GITHUB_OUTPUT
+          echo "high=$HIGH" >> $GITHUB_OUTPUT
+          echo "medium=$MEDIUM" >> $GITHUB_OUTPUT
+          echo "low=$LOW" >> $GITHUB_OUTPUT
+          echo "total=$TOTAL" >> $GITHUB_OUTPUT
+
+          echo "Found $TOTAL vulnerabilities: CRITICAL=$CRITICAL, HIGH=$HIGH, MEDIUM=$MEDIUM, LOW=$LOW"
+
+      - name: Upload scan results as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-results-${{ matrix.image }}-${{ matrix.variant }}
+          path: trivy-results-${{ matrix.image }}-${{ matrix.variant }}.*
+          retention-days: 30
+        continue-on-error: true
+
+      - name: Generate scan summary
+        run: |
+          IMAGE_NAME="${{ matrix.image }}"
+          VARIANT="${{ matrix.variant }}"
+          IMAGE_REF="${{ steps.image-ref.outputs.image_ref }}"
+          REGISTRY="${{ github.event.inputs.registry }}"
+          SEVERITY="${{ github.event.inputs.severity }}"
+
+          CRITICAL="${{ steps.parse-results.outputs.critical }}"
+          HIGH="${{ steps.parse-results.outputs.high }}"
+          MEDIUM="${{ steps.parse-results.outputs.medium }}"
+          LOW="${{ steps.parse-results.outputs.low }}"
+          TOTAL="${{ steps.parse-results.outputs.total }}"
+
+          echo "## Security Scan Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** \`$IMAGE_REF\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Variant:** $VARIANT" >> $GITHUB_STEP_SUMMARY
+          echo "**Registry:** $REGISTRY" >> $GITHUB_STEP_SUMMARY
+          echo "**Severity Filter:** $SEVERITY" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### Vulnerability Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| 🔴 CRITICAL | $CRITICAL |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🟠 HIGH | $HIGH |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🟡 MEDIUM | $MEDIUM |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🟢 LOW | $LOW |" >> $GITHUB_STEP_SUMMARY
+          echo "| **TOTAL** | **$TOTAL** |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "$TOTAL" -eq 0 ]; then
+            echo "✅ **No vulnerabilities found!**" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ **Found $TOTAL vulnerabilities**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "View detailed results in:" >> $GITHUB_STEP_SUMMARY
+            echo "- Security tab (SARIF report uploaded)" >> $GITHUB_STEP_SUMMARY
+            echo "- Workflow artifacts (JSON and SARIF files)" >> $GITHUB_STEP_SUMMARY
+          fi

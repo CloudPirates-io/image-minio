@@ -45,7 +45,24 @@ Images are built via GitHub Actions workflow. Go to **Actions → Build and Publ
 - **push_to_dockerhub**: Push to Docker Hub
 - **push_to_ghcr**: Push to GitHub Container Registry
 - **sign_images**: Sign images with Cosign
-- **run_security_scan**: Run Trivy security scan
+- **run_security_scan**: Run Trivy security scan (hardened images only)
+
+## Security Scanning
+
+Scan existing images for vulnerabilities without rebuilding. Go to **Actions → Security Scan Container Images → Run workflow**
+
+### Scan Options
+
+- **images**: Which images to scan (`all` or comma-separated list)
+- **variant**: Choose `vanilla`, `hardened`, or `all`
+- **image_version**: Version/tag to scan (e.g., `RELEASE.2025-10-15T17-29-55Z` or `latest`)
+- **registry**: Pull from `ghcr` or `dockerhub`
+- **severity**: Vulnerability levels to report (default: `CRITICAL,HIGH,MEDIUM`)
+
+Results are:
+- Uploaded to GitHub Security tab (SARIF format)
+- Displayed in workflow summary (table format)
+- Available as downloadable artifacts (JSON and SARIF files)
 
 ## Image Verification
 
