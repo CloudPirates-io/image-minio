@@ -1449,8 +1449,16 @@ jobs:
             TAG_SUFFIX="-${{ github.event.inputs.tag_suffix }}"
           fi
 
+          # Apply variant suffix for hardened builds
+          VARIANT="${{ matrix.variant }}"
+          VARIANT_SUFFIX=""
+          if [ "$VARIANT" = "hardened" ]; then
+            VARIANT_SUFFIX="-hardened"
+          fi
+
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "tag_suffix=$TAG_SUFFIX" >> $GITHUB_OUTPUT
+          echo "variant_suffix=$VARIANT_SUFFIX" >> $GITHUB_OUTPUT
           echo "repo_owner=$REPO_OWNER" >> $GITHUB_OUTPUT
 
       - name: Create cpuv1 multi-arch manifest
@@ -1460,6 +1468,7 @@ jobs:
           IMAGE_NAME="${{ matrix.image }}"
           VERSION="${{ steps.config.outputs.version }}"
           TAG_SUFFIX="${{ steps.config.outputs.tag_suffix }}"
+          VARIANT_SUFFIX="${{ steps.config.outputs.variant_suffix }}"
           REPO_OWNER="${{ steps.config.outputs.repo_owner }}"
 
           # Create and push cpuv1 multi-arch manifests
@@ -1467,12 +1476,12 @@ jobs:
             DOCKERHUB_REPO="${{ steps.check-creds.outputs.dockerhub_repo }}"
 
             echo "Creating Docker Hub cpuv1 multi-arch manifest..."
-            docker buildx imagetools create -t ${DOCKERHUB_REPO}:$VERSION$TAG_SUFFIX-cpuv1 \
-              ${DOCKERHUB_REPO}:$VERSION$TAG_SUFFIX-cpuv1-amd64 \
-              ${DOCKERHUB_REPO}:$VERSION$TAG_SUFFIX-cpuv1-arm64
+            docker buildx imagetools create -t ${DOCKERHUB_REPO}:$VERSION$TAG_SUFFIX$VARIANT_SUFFIX-cpuv1 \
+              ${DOCKERHUB_REPO}:$VERSION$TAG_SUFFIX$VARIANT_SUFFIX-cpuv1-amd64 \
+              ${DOCKERHUB_REPO}:$VERSION$TAG_SUFFIX$VARIANT_SUFFIX-cpuv1-arm64
 
-            # Create latest-cpuv1 tag if no suffix
-            if [ -z "$TAG_SUFFIX" ]; then
+            # Create latest-cpuv1 tag if no suffix and vanilla variant
+            if [ -z "$TAG_SUFFIX" ] && [ -z "$VARIANT_SUFFIX" ]; then
               docker buildx imagetools create -t ${DOCKERHUB_REPO}:latest-cpuv1 \
                 ${DOCKERHUB_REPO}:$VERSION-cpuv1-amd64 \
                 ${DOCKERHUB_REPO}:$VERSION-cpuv1-arm64
@@ -1481,12 +1490,12 @@ jobs:
 
           if [ "${{ github.event.inputs.push_to_ghcr }}" = "true" ]; then
             echo "Creating GHCR cpuv1 multi-arch manifest..."
-            docker buildx imagetools create -t ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION$TAG_SUFFIX-cpuv1 \
-              ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION$TAG_SUFFIX-cpuv1-amd64 \
-              ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION$TAG_SUFFIX-cpuv1-arm64
+            docker buildx imagetools create -t ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION$TAG_SUFFIX$VARIANT_SUFFIX-cpuv1 \
+              ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION$TAG_SUFFIX$VARIANT_SUFFIX-cpuv1-amd64 \
+              ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION$TAG_SUFFIX$VARIANT_SUFFIX-cpuv1-arm64
 
-            # Create latest-cpuv1 tag if no suffix
-            if [ -z "$TAG_SUFFIX" ]; then
+            # Create latest-cpuv1 tag if no suffix and vanilla variant
+            if [ -z "$TAG_SUFFIX" ] && [ -z "$VARIANT_SUFFIX" ]; then
               docker buildx imagetools create -t ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:latest-cpuv1 \
                 ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION-cpuv1-amd64 \
                 ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION-cpuv1-arm64
@@ -1502,6 +1511,7 @@ jobs:
           IMAGE_NAME="${{ matrix.image }}"
           VERSION="${{ steps.config.outputs.version }}"
           TAG_SUFFIX="${{ steps.config.outputs.tag_suffix }}"
+          VARIANT_SUFFIX="${{ steps.config.outputs.variant_suffix }}"
           REPO_OWNER="${{ steps.config.outputs.repo_owner }}"
 
           echo "Cleaning up intermediate cpuv1 platform-specific tags..."
@@ -1510,7 +1520,7 @@ jobs:
             echo "Deleting GHCR cpuv1 platform-specific tags..."
 
             for ARCH in amd64 arm64; do
-              TAG="$VERSION$TAG_SUFFIX-cpuv1-$ARCH"
+              TAG="$VERSION$TAG_SUFFIX$VARIANT_SUFFIX-cpuv1-$ARCH"
               echo "Attempting to delete ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$TAG"
 
               PACKAGE_VERSION_ID=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
@@ -1539,7 +1549,7 @@ jobs:
 
             if [ -n "$DOCKERHUB_TOKEN" ] && [ "$DOCKERHUB_TOKEN" != "null" ]; then
               for ARCH in amd64 arm64; do
-                TAG="$VERSION$TAG_SUFFIX-cpuv1-$ARCH"
+                TAG="$VERSION$TAG_SUFFIX$VARIANT_SUFFIX-cpuv1-$ARCH"
                 echo "Attempting to delete Docker Hub tag: $TAG"
 
                 curl -X DELETE \
@@ -1589,12 +1599,19 @@ jobs:
             TAG_SUFFIX="-${{ github.event.inputs.tag_suffix }}"
           fi
 
-          IMAGE_REF="ghcr.io/$REPO_OWNER/container-images/${{ matrix.image }}:${{ steps.config.outputs.version }}$TAG_SUFFIX-cpuv1"
+          # Apply variant suffix for hardened builds
+          VARIANT="${{ matrix.variant }}"
+          VARIANT_SUFFIX=""
+          if [ "$VARIANT" = "hardened" ]; then
+            VARIANT_SUFFIX="-hardened"
+          fi
+
+          IMAGE_REF="ghcr.io/$REPO_OWNER/container-images/${{ matrix.image }}:${{ steps.config.outputs.version }}$TAG_SUFFIX$VARIANT_SUFFIX-cpuv1"
           echo "image_ref=$IMAGE_REF" >> $GITHUB_OUTPUT
           echo "Scanning cpuv1 image: $IMAGE_REF"
 
       - name: Run Trivy vulnerability scanner on cpuv1
-        if: github.event.inputs.run_security_scan == 'true' && github.event.inputs.push_to_ghcr == 'true'
+        if: github.event.inputs.run_security_scan == 'true' && github.event.inputs.push_to_ghcr == 'true' && matrix.variant == 'hardened'
         uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
         with:
           image-ref: ${{ steps.scan-ref.outputs.image_ref }}
@@ -1604,14 +1621,14 @@ jobs:
         continue-on-error: true
 
       - name: Upload Trivy cpuv1 results to GitHub Security
-        if: github.event.inputs.run_security_scan == 'true' && github.event.inputs.push_to_ghcr == 'true'
+        if: github.event.inputs.run_security_scan == 'true' && github.event.inputs.push_to_ghcr == 'true' && matrix.variant == 'hardened'
         uses: github/codeql-action/upload-sarif@b20883b0cd1f46c72ae0ba6d1090936928f9fa30 # v3.28.5
         with:
           sarif_file: 'trivy-results-cpuv1.sarif'
         continue-on-error: true
 
       - name: Run Trivy for cpuv1 summary
-        if: github.event.inputs.run_security_scan == 'true' && github.event.inputs.push_to_ghcr == 'true'
+        if: github.event.inputs.run_security_scan == 'true' && github.event.inputs.push_to_ghcr == 'true' && matrix.variant == 'hardened'
         uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
         with:
           image-ref: ${{ steps.scan-ref.outputs.image_ref }}
@@ -1640,35 +1657,45 @@ jobs:
             TAG_SUFFIX="-${{ github.event.inputs.tag_suffix }}"
           fi
 
+          # Apply variant suffix for hardened builds
+          VARIANT="${{ matrix.variant }}"
+          VARIANT_SUFFIX=""
+          if [ "$VARIANT" = "hardened" ]; then
+            VARIANT_SUFFIX="-hardened"
+          fi
+
           # Sign Docker Hub cpuv1 image if push is enabled
           if [ "${{ github.event.inputs.push_to_dockerhub }}" = "true" ] && [ "${{ steps.check-creds.outputs.dockerhub }}" = "true" ]; then
             DOCKERHUB_REPO="${{ steps.check-creds.outputs.dockerhub_repo }}"
             echo "Signing Docker Hub cpuv1 image..."
             cosign sign -y --key env://COSIGN_KEY \
-              ${DOCKERHUB_REPO}:$VERSION$TAG_SUFFIX-cpuv1
+              ${DOCKERHUB_REPO}:$VERSION$TAG_SUFFIX$VARIANT_SUFFIX-cpuv1
           fi
 
           # Sign GHCR cpuv1 image if push is enabled
           if [ "${{ github.event.inputs.push_to_ghcr }}" = "true" ]; then
             echo "Signing GHCR cpuv1 image..."
             cosign sign -y --key env://COSIGN_KEY \
-              ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION$TAG_SUFFIX-cpuv1
+              ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION$TAG_SUFFIX$VARIANT_SUFFIX-cpuv1
           fi
 
-          echo "Successfully signed cpuv1 images for $IMAGE_NAME:$VERSION$TAG_SUFFIX-cpuv1"
+          echo "Successfully signed cpuv1 images for $IMAGE_NAME:$VERSION$TAG_SUFFIX$VARIANT_SUFFIX-cpuv1"
 
       - name: Generate cpuv1 job summary
         run: |
           IMAGE_NAME="${{ matrix.image }}"
           VERSION="${{ steps.config.outputs.version }}"
           TAG_SUFFIX="${{ steps.config.outputs.tag_suffix }}"
+          VARIANT_SUFFIX="${{ steps.config.outputs.variant_suffix }}"
+          VARIANT="${{ matrix.variant }}"
 
           echo "## Multi-Arch CPUv1 Container Image Built" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Successfully built **$IMAGE_NAME:$VERSION$TAG_SUFFIX-cpuv1** for older CPUs (baseline x86-64)" >> $GITHUB_STEP_SUMMARY
+          echo "Successfully built **$IMAGE_NAME:$VERSION$TAG_SUFFIX$VARIANT_SUFFIX-cpuv1** for older CPUs (baseline x86-64)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
           echo "### Build Configuration" >> $GITHUB_STEP_SUMMARY
+          echo "- **Variant**: $VARIANT" >> $GITHUB_STEP_SUMMARY
           echo "- **Platforms**: linux/amd64, linux/arm64" >> $GITHUB_STEP_SUMMARY
           echo "- **CPU Target**: v1 (baseline x86-64, compatible with older CPUs)" >> $GITHUB_STEP_SUMMARY
           echo "- **Build Method**: Native builds on platform-specific runners (no QEMU)" >> $GITHUB_STEP_SUMMARY
@@ -1732,13 +1759,13 @@ jobs:
           if [ "${{ github.event.inputs.push_to_dockerhub }}" = "true" ] && [ "${{ steps.check-creds.outputs.dockerhub }}" = "true" ]; then
             DOCKERHUB_REPO="${{ steps.check-creds.outputs.dockerhub_repo }}"
             echo "# From Docker Hub (multi-arch, cpuv1)" >> $GITHUB_STEP_SUMMARY
-            echo "docker pull ${DOCKERHUB_REPO}:$VERSION$TAG_SUFFIX-cpuv1" >> $GITHUB_STEP_SUMMARY
+            echo "docker pull ${DOCKERHUB_REPO}:$VERSION$TAG_SUFFIX$VARIANT_SUFFIX-cpuv1" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
           fi
 
           if [ "${{ github.event.inputs.push_to_ghcr }}" = "true" ]; then
             echo "# From GHCR (multi-arch, cpuv1)" >> $GITHUB_STEP_SUMMARY
-            echo "docker pull ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION$TAG_SUFFIX-cpuv1" >> $GITHUB_STEP_SUMMARY
+            echo "docker pull ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION$TAG_SUFFIX$VARIANT_SUFFIX-cpuv1" >> $GITHUB_STEP_SUMMARY
           fi
 
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
