@@ -1,7 +1,7 @@
 ARG RELEASE=RELEASE.2025-10-15T17-29-55Z
 
 # Build stage - compile MinIO from source with security patches
-# Using Go 1.24.11 to fix CVE-2025-61729 (crypto/x509 DoS vulnerability)
+# Using Go 1.25.6 to fix CVE-2025-61729 (crypto/x509 DoS vulnerability)
 FROM golang:1.25.6-alpine AS build
 
 ARG TARGETARCH
@@ -67,10 +67,17 @@ RUN test -x /go/bin/minio && \
 RUN echo "minio:x:1000:1000:MinIO User:/home/minio:/bin/sh" >> /tmp/passwd && \
     echo "minio:x:1000:" >> /tmp/group
 
-# Runtime stage - using UBI9 for hardened builds (newer packages, better security)
-FROM registry.access.redhat.com/ubi9/ubi-micro:latest
+# Runtime stage - using Alpine for hardened builds (musl instead of glibc, minimal CVEs)
+# Alpine uses musl libc instead of glibc, eliminating glibc CVEs
+# Minimal base image without pcre2, ncurses, and other unnecessary packages
+FROM alpine:3.21
 
 ARG RELEASE
+
+# Install CA certificates and create necessary system files
+# hadolint ignore=DL3018
+RUN apk add --no-cache ca-certificates tzdata && \
+    mkdir -p /etc/ssl/certs
 
 LABEL org.opencontainers.image.source="https://github.com/CloudPirates-io/image-minio" \
       org.opencontainers.image.description="MinIO High-Performance Object Storage (Security-Hardened with Patches)" \
@@ -102,9 +109,6 @@ ENV MINIO_ACCESS_KEY_FILE=access_key \
     MINIO_UPDATE_MINISIGN_PUBKEY="RWTx5Zr1tiHQLwG9keckT0c45M3AGeHD6IvimQHpyRywVWGbP1aVSGav" \
     MINIO_CONFIG_ENV_FILE=config.env \
     MC_CONFIG_DIR=/tmp/.mc
-
-# Copy CA certificates
-COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 
 # Copy user configuration from build stage
 COPY --from=build /tmp/passwd /tmp/group /tmp/
