@@ -1074,6 +1074,13 @@ jobs:
             TAG_SUFFIX="-${{ github.event.inputs.tag_suffix }}"
           fi
 
+          # Apply variant suffix for hardened builds
+          VARIANT="${{ matrix.variant }}"
+          VARIANT_SUFFIX=""
+          if [ "$VARIANT" = "hardened" ]; then
+            VARIANT_SUFFIX="-hardened"
+          fi
+
           # Build platform-specific tags with cpuv1 suffix
           TAGS=""
           SHOULD_PUSH="false"
@@ -1081,16 +1088,16 @@ jobs:
           # Add Docker Hub tags if enabled and credentials are available
           if [ "${{ github.event.inputs.push_to_dockerhub }}" = "true" ] && [ "${{ steps.check-creds.outputs.dockerhub }}" = "true" ]; then
             DOCKERHUB_REPO="${{ steps.check-creds.outputs.dockerhub_repo }}"
-            TAGS="${DOCKERHUB_REPO}:$VERSION$TAG_SUFFIX-cpuv1-amd64"
+            TAGS="${DOCKERHUB_REPO}:$VERSION$TAG_SUFFIX$VARIANT_SUFFIX-cpuv1-amd64"
             SHOULD_PUSH="true"
           fi
 
           # Add GHCR tags if enabled
           if [ "${{ github.event.inputs.push_to_ghcr }}" = "true" ]; then
             if [ -n "$TAGS" ]; then
-              TAGS="$TAGS,ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION$TAG_SUFFIX-cpuv1-amd64"
+              TAGS="$TAGS,ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION$TAG_SUFFIX$VARIANT_SUFFIX-cpuv1-amd64"
             else
-              TAGS="ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION$TAG_SUFFIX-cpuv1-amd64"
+              TAGS="ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION$TAG_SUFFIX$VARIANT_SUFFIX-cpuv1-amd64"
             fi
             SHOULD_PUSH="true"
           fi
@@ -1098,7 +1105,7 @@ jobs:
           # If no registry is selected, use a local tag for build-only
           if [ -z "$TAGS" ]; then
             echo "⚠️ No registry selected - building without push"
-            TAGS="local/$IMAGE_NAME:$VERSION$TAG_SUFFIX-cpuv1-amd64"
+            TAGS="local/$IMAGE_NAME:$VERSION$TAG_SUFFIX$VARIANT_SUFFIX-cpuv1-amd64"
           fi
 
           echo "base_image=$BASE_IMAGE" >> $GITHUB_OUTPUT
@@ -1267,28 +1274,35 @@ jobs:
             TAG_SUFFIX="-${{ github.event.inputs.tag_suffix }}"
           fi
 
+          # Apply variant suffix for hardened builds
+          VARIANT="${{ matrix.variant }}"
+          VARIANT_SUFFIX=""
+          if [ "$VARIANT" = "hardened" ]; then
+            VARIANT_SUFFIX="-hardened"
+          fi
+
           # Build platform-specific tags with cpuv1 suffix
           TAGS=""
           SHOULD_PUSH="false"
 
           if [ "${{ github.event.inputs.push_to_dockerhub }}" = "true" ] && [ "${{ steps.check-creds.outputs.dockerhub }}" = "true" ]; then
             DOCKERHUB_REPO="${{ steps.check-creds.outputs.dockerhub_repo }}"
-            TAGS="${DOCKERHUB_REPO}:$VERSION$TAG_SUFFIX-cpuv1-arm64"
+            TAGS="${DOCKERHUB_REPO}:$VERSION$TAG_SUFFIX$VARIANT_SUFFIX-cpuv1-arm64"
             SHOULD_PUSH="true"
           fi
 
           if [ "${{ github.event.inputs.push_to_ghcr }}" = "true" ]; then
             if [ -n "$TAGS" ]; then
-              TAGS="$TAGS,ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION$TAG_SUFFIX-cpuv1-arm64"
+              TAGS="$TAGS,ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION$TAG_SUFFIX$VARIANT_SUFFIX-cpuv1-arm64"
             else
-              TAGS="ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION$TAG_SUFFIX-cpuv1-arm64"
+              TAGS="ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION$TAG_SUFFIX$VARIANT_SUFFIX-cpuv1-arm64"
             fi
             SHOULD_PUSH="true"
           fi
 
           if [ -z "$TAGS" ]; then
             echo "⚠️ No registry selected - building without push"
-            TAGS="local/$IMAGE_NAME:$VERSION$TAG_SUFFIX-cpuv1-arm64"
+            TAGS="local/$IMAGE_NAME:$VERSION$TAG_SUFFIX$VARIANT_SUFFIX-cpuv1-arm64"
           fi
 
           echo "base_image=$BASE_IMAGE" >> $GITHUB_OUTPUT
@@ -1308,14 +1322,22 @@ jobs:
           set -euo pipefail
 
           IMAGE_NAME="${{ matrix.image }}"
+          VARIANT="${{ matrix.variant }}"
           BASE_IMAGE="${{ steps.config.outputs.base_image }}"
           VERSION="${{ steps.config.outputs.version }}"
 
           DOCKERFILE="images/$IMAGE_NAME/Dockerfile.generated"
-          CUSTOM_DOCKERFILE="images/$IMAGE_NAME/Dockerfile"
 
+          # Select Dockerfile based on variant
+          if [ "$VARIANT" = "hardened" ]; then
+            CUSTOM_DOCKERFILE="images/$IMAGE_NAME/Dockerfile.hardened"
+          else
+            CUSTOM_DOCKERFILE="images/$IMAGE_NAME/Dockerfile"
+          fi
+
+          # Use custom Dockerfile if it exists, otherwise generate one
           if [ -f "$CUSTOM_DOCKERFILE" ]; then
-            echo "Using custom Dockerfile"
+            echo "Using $VARIANT Dockerfile: $CUSTOM_DOCKERFILE"
             cp "$CUSTOM_DOCKERFILE" "$DOCKERFILE"
           else
             echo "Generating Dockerfile"
