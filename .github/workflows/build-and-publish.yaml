@@ -407,13 +407,11 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install yq
-        if: matrix.variant == 'vanilla'
         run: |
           sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_arm64
           sudo chmod +x /usr/local/bin/yq
 
       - name: Parse image configuration
-        if: matrix.variant == 'vanilla'
         id: config
         run: |
           set -euo pipefail
