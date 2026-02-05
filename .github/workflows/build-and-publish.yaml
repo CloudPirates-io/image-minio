@@ -407,11 +407,13 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install yq
+        if: matrix.variant == 'vanilla'
         run: |
           sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_arm64
           sudo chmod +x /usr/local/bin/yq
 
       - name: Parse image configuration
+        if: matrix.variant == 'vanilla'
         id: config
         run: |
           set -euo pipefail
@@ -916,14 +918,17 @@ jobs:
       digest: ${{ steps.build.outputs.digest }}
     steps:
       - name: Checkout
+        if: matrix.variant == 'vanilla'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Set up Docker Buildx
+        if: matrix.variant == 'vanilla'
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
         with:
           buildkitd-flags: --debug
 
       - name: Check credentials availability
+        if: matrix.variant == 'vanilla'
         id: check-creds
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -958,14 +963,14 @@ jobs:
           echo "Docker Hub repository: $REPO_NAME"
 
       - name: Login to Docker Hub
-        if: github.event.inputs.push_to_dockerhub == 'true' && steps.check-creds.outputs.dockerhub == 'true'
+        if: matrix.variant == 'vanilla' && github.event.inputs.push_to_dockerhub == 'true' && steps.check-creds.outputs.dockerhub == 'true'
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Login to GHCR
-        if: github.event.inputs.push_to_ghcr == 'true'
+        if: matrix.variant == 'vanilla' && github.event.inputs.push_to_ghcr == 'true'
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ghcr.io
@@ -973,11 +978,13 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install yq
+        if: matrix.variant == 'vanilla'
         run: |
           sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
           sudo chmod +x /usr/local/bin/yq
 
       - name: Parse image configuration
+        if: matrix.variant == 'vanilla'
         id: config
         run: |
           set -euo pipefail
@@ -1057,6 +1064,7 @@ jobs:
           echo "Cache scope: $IMAGE_NAME-amd64-cpuv1"
 
       - name: Generate Dockerfile
+        if: matrix.variant == 'vanilla'
         run: |
           set -euo pipefail
 
@@ -1133,14 +1141,17 @@ jobs:
       digest: ${{ steps.build.outputs.digest }}
     steps:
       - name: Checkout
+        if: matrix.variant == 'vanilla'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Set up Docker Buildx
+        if: matrix.variant == 'vanilla'
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
         with:
           buildkitd-flags: --debug
 
       - name: Check credentials availability
+        if: matrix.variant == 'vanilla'
         id: check-creds
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -1177,11 +1188,13 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install yq
+        if: matrix.variant == 'vanilla'
         run: |
           sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_arm64
           sudo chmod +x /usr/local/bin/yq
 
       - name: Parse image configuration
+        if: matrix.variant == 'vanilla'
         id: config
         run: |
           set -euo pipefail
@@ -1255,6 +1268,7 @@ jobs:
           echo "Cache scope: $IMAGE_NAME-arm64-cpuv1"
 
       - name: Generate Dockerfile
+        if: matrix.variant == 'vanilla'
         run: |
           set -euo pipefail
 
