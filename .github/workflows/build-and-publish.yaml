@@ -903,7 +903,7 @@ jobs:
   # Build AMD64 images for older CPUs (cpuv1) - only for vanilla variant
   build-amd64-cpuv1:
     needs: detect-changes
-    if: needs.detect-changes.outputs.matrix != '' && fromJson(needs.detect-changes.outputs.matrix).include[0].image != 'none' && fromJson(needs.detect-changes.outputs.matrix).include[0].variant == 'vanilla'
+    if: needs.detect-changes.outputs.matrix != '' && fromJson(needs.detect-changes.outputs.matrix).include[0].image != 'none'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -1095,6 +1095,7 @@ jobs:
           cat "$DOCKERFILE"
 
       - name: Build and push AMD64 cpuv1
+        if: matrix.variant == 'vanilla'
         id: build
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
         with:
@@ -1119,7 +1120,7 @@ jobs:
   # Build ARM64 images for older CPUs (cpuv1) - only for vanilla variant
   build-arm64-cpuv1:
     needs: detect-changes
-    if: needs.detect-changes.outputs.matrix != '' && fromJson(needs.detect-changes.outputs.matrix).include[0].image != 'none' && fromJson(needs.detect-changes.outputs.matrix).include[0].variant == 'vanilla'
+    if: needs.detect-changes.outputs.matrix != '' && fromJson(needs.detect-changes.outputs.matrix).include[0].image != 'none'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 30
     permissions:
@@ -1292,6 +1293,7 @@ jobs:
           cat "$DOCKERFILE"
 
       - name: Build and push ARM64 cpuv1
+        if: matrix.variant == 'vanilla'
         id: build
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
         with:
@@ -1319,7 +1321,6 @@ jobs:
     if: |
       needs.detect-changes.outputs.matrix != '' &&
       fromJson(needs.detect-changes.outputs.matrix).include[0].image != 'none' &&
-      fromJson(needs.detect-changes.outputs.matrix).include[0].variant == 'vanilla' &&
       (github.event.inputs.push_to_dockerhub == 'true' || github.event.inputs.push_to_ghcr == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -1421,6 +1422,7 @@ jobs:
           echo "repo_owner=$REPO_OWNER" >> $GITHUB_OUTPUT
 
       - name: Create cpuv1 multi-arch manifest
+        if: matrix.variant == 'vanilla'
         run: |
           set -euo pipefail
 
@@ -1464,7 +1466,7 @@ jobs:
           echo "✅ CPUv1 multi-arch manifest created successfully"
 
       - name: Wait for cpuv1 image to be available
-        if: github.event.inputs.push_to_ghcr == 'true' && github.event.inputs.run_security_scan == 'true' && matrix.variant == 'hardened'
+        if: github.event.inputs.push_to_ghcr == 'true' && github.event.inputs.run_security_scan == 'true' && matrix.variant == 'vanilla'
         run: |
           set -euo pipefail
 
@@ -1490,7 +1492,7 @@ jobs:
           echo "Image is available"
 
       - name: Set image reference for scanning
-        if: github.event.inputs.run_security_scan == 'true' && github.event.inputs.push_to_ghcr == 'true' && matrix.variant == 'hardened'
+        if: github.event.inputs.run_security_scan == 'true' && github.event.inputs.push_to_ghcr == 'true' && matrix.variant == 'vanilla'
         id: scan-ref
         run: |
           REPO_OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
@@ -1512,7 +1514,7 @@ jobs:
           echo "Scanning cpuv1 image: $IMAGE_REF"
 
       - name: Run Trivy vulnerability scanner on cpuv1
-        if: github.event.inputs.run_security_scan == 'true' && github.event.inputs.push_to_ghcr == 'true' && matrix.variant == 'hardened'
+        if: github.event.inputs.run_security_scan == 'true' && github.event.inputs.push_to_ghcr == 'true' && matrix.variant == 'vanilla'
         uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
         with:
           image-ref: ${{ steps.scan-ref.outputs.image_ref }}
@@ -1522,7 +1524,7 @@ jobs:
         continue-on-error: true
 
       - name: Upload Trivy cpuv1 results to GitHub Security
-        if: github.event.inputs.run_security_scan == 'true' && github.event.inputs.push_to_ghcr == 'true' && matrix.variant == 'hardened'
+        if: github.event.inputs.run_security_scan == 'true' && github.event.inputs.push_to_ghcr == 'true' && matrix.variant == 'vanilla'
         uses: github/codeql-action/upload-sarif@b20883b0cd1f46c72ae0ba6d1090936928f9fa30 # v3.28.5
         with:
           sarif_file: 'trivy-results-cpuv1.sarif'
@@ -1530,7 +1532,7 @@ jobs:
         continue-on-error: true
 
       - name: Run Trivy for cpuv1 summary
-        if: github.event.inputs.run_security_scan == 'true' && github.event.inputs.push_to_ghcr == 'true' && matrix.variant == 'hardened'
+        if: github.event.inputs.run_security_scan == 'true' && github.event.inputs.push_to_ghcr == 'true' && matrix.variant == 'vanilla'
         uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
         with:
           image-ref: ${{ steps.scan-ref.outputs.image_ref }}
@@ -1539,11 +1541,11 @@ jobs:
         continue-on-error: true
 
       - name: Install cosign
-        if: github.event.inputs.sign_images == 'true' && steps.check-creds.outputs.cosign == 'true'
+        if: github.event.inputs.sign_images == 'true' && steps.check-creds.outputs.cosign == 'true' && matrix.variant == 'vanilla'
         uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad # v4.0.0
 
       - name: Sign cpuv1 images
-        if: github.event.inputs.sign_images == 'true' && steps.check-creds.outputs.cosign == 'true'
+        if: github.event.inputs.sign_images == 'true' && steps.check-creds.outputs.cosign == 'true' && matrix.variant == 'vanilla'
         env:
           COSIGN_KEY: ${{ secrets.COSIGN_KEY }}
           COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
