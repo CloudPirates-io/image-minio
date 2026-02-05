@@ -146,9 +146,9 @@ jobs:
           REGISTRY="${{ github.event.inputs.registry }}"
           REPO_OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
 
-          # Apply variant suffix for hardened builds (unless scanning 'latest' tag)
+          # Apply variant suffix for hardened builds
           VARIANT_SUFFIX=""
-          if [ "$VARIANT" = "hardened" ] && [ "$VERSION" != "latest" ]; then
+          if [ "$VARIANT" = "hardened" ]; then
             VARIANT_SUFFIX="-hardened"
           fi
 
