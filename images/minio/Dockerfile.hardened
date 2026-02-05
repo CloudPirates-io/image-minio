@@ -34,10 +34,9 @@ RUN cd minio && \
         echo "All patches applied successfully"; \
     else \
         echo "Warning: No patches found in patches/ directory"; \
-    fi
-
-# Download updated dependencies after patching (bypass cache to ensure fresh versions)
-RUN cd minio && \
+    fi && \
+    echo "Clearing Go module cache to force fresh downloads..." && \
+    go clean -modcache && \
     echo "Downloading updated dependencies..." && \
     go mod download && \
     go mod verify && \
