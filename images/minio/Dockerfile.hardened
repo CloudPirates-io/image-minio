@@ -1,6 +1,6 @@
 ARG RELEASE=RELEASE.2025-10-15T17-29-55Z
 
-# Build stage - compile MinIO from source
+# Build stage - compile MinIO from source with security patches
 # Using Go 1.24.11 to fix CVE-2025-61729 (crypto/x509 DoS vulnerability)
 FROM golang:1.24.11-alpine AS build
 
@@ -14,14 +14,32 @@ ENV GOAMD64=${GOAMD64}
 
 WORKDIR /build
 
-# Install build tools
-RUN apk add -U --no-cache ca-certificates git make
+# Install build tools (including patch utility)
+RUN apk add -U --no-cache ca-certificates git make patch
 
-# Clone MinIO source at specific release tag and build
+# Clone MinIO source at specific release tag
+RUN git clone --depth 1 --branch ${RELEASE} https://github.com/minio/minio.git
+
+# Copy patches directory (if exists)
+COPY patches/ /build/patches/
+
+# Apply security patches to MinIO source
+RUN cd minio && \
+    if [ -d /build/patches ] && [ "$(ls -A /build/patches/*.patch 2>/dev/null)" ]; then \
+        echo "Applying security patches..." && \
+        for patch_file in /build/patches/*.patch; do \
+            echo "  Applying: $(basename $patch_file)" && \
+            patch -p1 < "$patch_file" || exit 1; \
+        done && \
+        echo "All patches applied successfully"; \
+    else \
+        echo "Warning: No patches found in patches/ directory"; \
+    fi
+
+# Build MinIO with patches applied
 # Use build cache mounts to significantly speed up compilation
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    git clone --depth 1 --branch ${RELEASE} https://github.com/minio/minio.git && \
     cd minio && \
     go build -o /go/bin/minio -trimpath -tags kqueue -ldflags "-s -w" .
 
@@ -48,16 +66,16 @@ FROM registry.access.redhat.com/ubi8/ubi-micro:latest
 ARG RELEASE
 
 LABEL org.opencontainers.image.source="https://github.com/CloudPirates-io/image-minio" \
-      org.opencontainers.image.description="MinIO High-Performance Object Storage (Security-First, Built from Source)" \
-      org.opencontainers.image.version="${RELEASE}" \
+      org.opencontainers.image.description="MinIO High-Performance Object Storage (Security-Hardened with Patches)" \
+      org.opencontainers.image.version="${RELEASE}-hardened" \
       org.opencontainers.image.vendor="CloudPirates" \
       org.opencontainers.image.licenses="AGPL-3.0" \
-      name="MinIO" \
+      name="MinIO Hardened" \
       vendor="MinIO Inc <dev@min.io>" \
       maintainer="zOnlyKroks" \
-      version="${RELEASE}" \
-      release="${RELEASE}" \
-      summary="MinIO is a High Performance Object Storage, API compatible with Amazon S3 cloud storage service."
+      version="${RELEASE}-hardened" \
+      release="${RELEASE}-hardened" \
+      summary="MinIO is a High Performance Object Storage with security patches applied."
 
 # Environment variables for MinIO
 # hadolint ignore=DL3003,DL4006,SC2086

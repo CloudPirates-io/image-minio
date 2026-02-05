@@ -38,6 +38,11 @@ on:
         required: false
         type: string
         default: ''
+      build_variant:
+        description: 'Image variant to build ("vanilla", "hardened", or "all")'
+        required: false
+        type: string
+        default: 'all'
 
 jobs:
   detect-changes:
@@ -75,12 +80,24 @@ jobs:
         id: set-matrix
         run: |
           IMAGES="${{ steps.changed-images.outputs.images }}"
+          BUILD_VARIANT="${{ github.event.inputs.build_variant }}"
           HAS_IMAGES="false"
+
+          # Determine which variants to build
+          VARIANTS=""
+          if [ "$BUILD_VARIANT" = "all" ]; then
+            VARIANTS="vanilla hardened"
+          elif [ "$BUILD_VARIANT" = "vanilla" ] || [ "$BUILD_VARIANT" = "hardened" ]; then
+            VARIANTS="$BUILD_VARIANT"
+          else
+            echo "Invalid build_variant: $BUILD_VARIANT (must be 'vanilla', 'hardened', or 'all')"
+            exit 1
+          fi
 
           if [ -z "$IMAGES" ] || [ "$IMAGES" = " " ]; then
             # No images to build - create empty matrix with dummy entry
             # The build job will be skipped via the 'if' condition
-            echo "matrix={\"include\":[{\"image\":\"none\"}]}" >> $GITHUB_OUTPUT
+            echo "matrix={\"include\":[{\"image\":\"none\",\"variant\":\"vanilla\"}]}" >> $GITHUB_OUTPUT
             echo "has_images=false" >> $GITHUB_OUTPUT
             echo "No images to build"
           else
@@ -88,8 +105,11 @@ jobs:
             FOUND_VALID_IMAGE=false
             for img in $IMAGES; do
               if [ -d "images/$img" ] && [ -f "images/$img/config.yaml" ]; then
-                JSON_ARRAY="$JSON_ARRAY{\"image\":\"$img\"},"
-                FOUND_VALID_IMAGE=true
+                # Add entries for each variant
+                for variant in $VARIANTS; do
+                  JSON_ARRAY="$JSON_ARRAY{\"image\":\"$img\",\"variant\":\"$variant\"},"
+                  FOUND_VALID_IMAGE=true
+                done
               fi
             done
 
@@ -98,7 +118,7 @@ jobs:
               HAS_IMAGES="true"
             else
               # No valid images found - create dummy entry
-              JSON_ARRAY="[{\"image\":\"none\"}]"
+              JSON_ARRAY="[{\"image\":\"none\",\"variant\":\"vanilla\"}]"
               HAS_IMAGES="false"
             fi
 
@@ -218,6 +238,13 @@ jobs:
             TAG_SUFFIX="-${{ github.event.inputs.tag_suffix }}"
           fi
 
+          # Apply variant suffix for hardened builds
+          VARIANT="${{ matrix.variant }}"
+          VARIANT_SUFFIX=""
+          if [ "$VARIANT" = "hardened" ]; then
+            VARIANT_SUFFIX="-hardened"
+          fi
+
           # Build platform-specific tags (will be merged later into multi-arch manifest)
           TAGS=""
           SHOULD_PUSH="false"
@@ -225,16 +252,16 @@ jobs:
           # Add Docker Hub tags if enabled and credentials are available
           if [ "${{ github.event.inputs.push_to_dockerhub }}" = "true" ] && [ "${{ steps.check-creds.outputs.dockerhub }}" = "true" ]; then
             DOCKERHUB_REPO="${{ steps.check-creds.outputs.dockerhub_repo }}"
-            TAGS="${DOCKERHUB_REPO}:$VERSION$TAG_SUFFIX-amd64"
+            TAGS="${DOCKERHUB_REPO}:$VERSION$TAG_SUFFIX$VARIANT_SUFFIX-amd64"
             SHOULD_PUSH="true"
           fi
 
           # Add GHCR tags if enabled
           if [ "${{ github.event.inputs.push_to_ghcr }}" = "true" ]; then
             if [ -n "$TAGS" ]; then
-              TAGS="$TAGS,ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION$TAG_SUFFIX-amd64"
+              TAGS="$TAGS,ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION$TAG_SUFFIX$VARIANT_SUFFIX-amd64"
             else
-              TAGS="ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION$TAG_SUFFIX-amd64"
+              TAGS="ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION$TAG_SUFFIX$VARIANT_SUFFIX-amd64"
             fi
             SHOULD_PUSH="true"
           fi
@@ -242,7 +269,7 @@ jobs:
           # If no registry is selected, use a local tag for build-only
           if [ -z "$TAGS" ]; then
             echo "⚠️ No registry selected - building without push"
-            TAGS="local/$IMAGE_NAME:$VERSION$TAG_SUFFIX-amd64"
+            TAGS="local/$IMAGE_NAME:$VERSION$TAG_SUFFIX$VARIANT_SUFFIX-amd64"
           fi
 
           echo "base_image=$BASE_IMAGE" >> $GITHUB_OUTPUT
@@ -262,15 +289,22 @@ jobs:
           set -euo pipefail
 
           IMAGE_NAME="${{ matrix.image }}"
+          VARIANT="${{ matrix.variant }}"
           BASE_IMAGE="${{ steps.config.outputs.base_image }}"
           VERSION="${{ steps.config.outputs.version }}"
 
           DOCKERFILE="images/$IMAGE_NAME/Dockerfile.generated"
-          CUSTOM_DOCKERFILE="images/$IMAGE_NAME/Dockerfile"
+
+          # Select Dockerfile based on variant
+          if [ "$VARIANT" = "hardened" ]; then
+            CUSTOM_DOCKERFILE="images/$IMAGE_NAME/Dockerfile.hardened"
+          else
+            CUSTOM_DOCKERFILE="images/$IMAGE_NAME/Dockerfile"
+          fi
 
           # Use custom Dockerfile if it exists, otherwise generate one
           if [ -f "$CUSTOM_DOCKERFILE" ]; then
-            echo "Using custom Dockerfile"
+            echo "Using $VARIANT Dockerfile: $CUSTOM_DOCKERFILE"
             cp "$CUSTOM_DOCKERFILE" "$DOCKERFILE"
           else
             echo "Generating Dockerfile"
@@ -407,28 +441,35 @@ jobs:
             TAG_SUFFIX="-${{ github.event.inputs.tag_suffix }}"
           fi
 
+          # Apply variant suffix for hardened builds
+          VARIANT="${{ matrix.variant }}"
+          VARIANT_SUFFIX=""
+          if [ "$VARIANT" = "hardened" ]; then
+            VARIANT_SUFFIX="-hardened"
+          fi
+
           # Build platform-specific tags (will be merged later into multi-arch manifest)
           TAGS=""
           SHOULD_PUSH="false"
 
           if [ "${{ github.event.inputs.push_to_dockerhub }}" = "true" ] && [ "${{ steps.check-creds.outputs.dockerhub }}" = "true" ]; then
             DOCKERHUB_REPO="${{ steps.check-creds.outputs.dockerhub_repo }}"
-            TAGS="${DOCKERHUB_REPO}:$VERSION$TAG_SUFFIX-arm64"
+            TAGS="${DOCKERHUB_REPO}:$VERSION$TAG_SUFFIX$VARIANT_SUFFIX-arm64"
             SHOULD_PUSH="true"
           fi
 
           if [ "${{ github.event.inputs.push_to_ghcr }}" = "true" ]; then
             if [ -n "$TAGS" ]; then
-              TAGS="$TAGS,ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION$TAG_SUFFIX-arm64"
+              TAGS="$TAGS,ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION$TAG_SUFFIX$VARIANT_SUFFIX-arm64"
             else
-              TAGS="ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION$TAG_SUFFIX-arm64"
+              TAGS="ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION$TAG_SUFFIX$VARIANT_SUFFIX-arm64"
             fi
             SHOULD_PUSH="true"
           fi
 
           if [ -z "$TAGS" ]; then
             echo "⚠️ No registry selected - building without push"
-            TAGS="local/$IMAGE_NAME:$VERSION$TAG_SUFFIX-arm64"
+            TAGS="local/$IMAGE_NAME:$VERSION$TAG_SUFFIX$VARIANT_SUFFIX-arm64"
           fi
 
           echo "base_image=$BASE_IMAGE" >> $GITHUB_OUTPUT
@@ -590,8 +631,16 @@ jobs:
             TAG_SUFFIX="-${{ github.event.inputs.tag_suffix }}"
           fi
 
+          # Apply variant suffix for hardened builds
+          VARIANT="${{ matrix.variant }}"
+          VARIANT_SUFFIX=""
+          if [ "$VARIANT" = "hardened" ]; then
+            VARIANT_SUFFIX="-hardened"
+          fi
+
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "tag_suffix=$TAG_SUFFIX" >> $GITHUB_OUTPUT
+          echo "variant_suffix=$VARIANT_SUFFIX" >> $GITHUB_OUTPUT
           echo "repo_owner=$REPO_OWNER" >> $GITHUB_OUTPUT
 
       - name: Create multi-arch manifest
@@ -601,6 +650,7 @@ jobs:
           IMAGE_NAME="${{ matrix.image }}"
           VERSION="${{ steps.config.outputs.version }}"
           TAG_SUFFIX="${{ steps.config.outputs.tag_suffix }}"
+          VARIANT_SUFFIX="${{ steps.config.outputs.variant_suffix }}"
           REPO_OWNER="${{ steps.config.outputs.repo_owner }}"
 
           # Create and push multi-arch manifests
@@ -608,12 +658,12 @@ jobs:
             DOCKERHUB_REPO="${{ steps.check-creds.outputs.dockerhub_repo }}"
 
             echo "Creating Docker Hub multi-arch manifest..."
-            docker buildx imagetools create -t ${DOCKERHUB_REPO}:$VERSION$TAG_SUFFIX \
-              ${DOCKERHUB_REPO}:$VERSION$TAG_SUFFIX-amd64 \
-              ${DOCKERHUB_REPO}:$VERSION$TAG_SUFFIX-arm64
+            docker buildx imagetools create -t ${DOCKERHUB_REPO}:$VERSION$TAG_SUFFIX$VARIANT_SUFFIX \
+              ${DOCKERHUB_REPO}:$VERSION$TAG_SUFFIX$VARIANT_SUFFIX-amd64 \
+              ${DOCKERHUB_REPO}:$VERSION$TAG_SUFFIX$VARIANT_SUFFIX-arm64
 
-            # Create latest tag if no suffix
-            if [ -z "$TAG_SUFFIX" ]; then
+            # Create latest tag if no suffix and vanilla variant
+            if [ -z "$TAG_SUFFIX" ] && [ -z "$VARIANT_SUFFIX" ]; then
               docker buildx imagetools create -t ${DOCKERHUB_REPO}:latest \
                 ${DOCKERHUB_REPO}:$VERSION-amd64 \
                 ${DOCKERHUB_REPO}:$VERSION-arm64
@@ -622,12 +672,12 @@ jobs:
 
           if [ "${{ github.event.inputs.push_to_ghcr }}" = "true" ]; then
             echo "Creating GHCR multi-arch manifest..."
-            docker buildx imagetools create -t ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION$TAG_SUFFIX \
-              ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION$TAG_SUFFIX-amd64 \
-              ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION$TAG_SUFFIX-arm64
+            docker buildx imagetools create -t ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION$TAG_SUFFIX$VARIANT_SUFFIX \
+              ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION$TAG_SUFFIX$VARIANT_SUFFIX-amd64 \
+              ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION$TAG_SUFFIX$VARIANT_SUFFIX-arm64
 
-            # Create latest tag if no suffix
-            if [ -z "$TAG_SUFFIX" ]; then
+            # Create latest tag if no suffix and vanilla variant
+            if [ -z "$TAG_SUFFIX" ] && [ -z "$VARIANT_SUFFIX" ]; then
               docker buildx imagetools create -t ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:latest \
                 ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION-amd64 \
                 ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION-arm64
@@ -643,6 +693,7 @@ jobs:
           IMAGE_NAME="${{ matrix.image }}"
           VERSION="${{ steps.config.outputs.version }}"
           TAG_SUFFIX="${{ steps.config.outputs.tag_suffix }}"
+          VARIANT_SUFFIX="${{ steps.config.outputs.variant_suffix }}"
           REPO_OWNER="${{ steps.config.outputs.repo_owner }}"
 
           echo "Cleaning up intermediate platform-specific tags..."
@@ -656,7 +707,7 @@ jobs:
             echo "Deleting GHCR platform-specific tags..."
 
             for ARCH in amd64 arm64; do
-              TAG="$VERSION$TAG_SUFFIX-$ARCH"
+              TAG="$VERSION$TAG_SUFFIX$VARIANT_SUFFIX-$ARCH"
               echo "Attempting to delete ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$TAG"
 
               # Get package version ID
@@ -687,7 +738,7 @@ jobs:
 
             if [ -n "$DOCKERHUB_TOKEN" ] && [ "$DOCKERHUB_TOKEN" != "null" ]; then
               for ARCH in amd64 arm64; do
-                TAG="$VERSION$TAG_SUFFIX-$ARCH"
+                TAG="$VERSION$TAG_SUFFIX$VARIANT_SUFFIX-$ARCH"
                 echo "Attempting to delete Docker Hub tag: $TAG"
 
                 curl -X DELETE \
@@ -738,7 +789,14 @@ jobs:
             TAG_SUFFIX="-${{ github.event.inputs.tag_suffix }}"
           fi
 
-          IMAGE_REF="ghcr.io/$REPO_OWNER/container-images/${{ matrix.image }}:${{ steps.config.outputs.version }}$TAG_SUFFIX"
+          # Apply variant suffix for hardened builds
+          VARIANT="${{ matrix.variant }}"
+          VARIANT_SUFFIX=""
+          if [ "$VARIANT" = "hardened" ]; then
+            VARIANT_SUFFIX="-hardened"
+          fi
+
+          IMAGE_REF="ghcr.io/$REPO_OWNER/container-images/${{ matrix.image }}:${{ steps.config.outputs.version }}$TAG_SUFFIX$VARIANT_SUFFIX"
           echo "image_ref=$IMAGE_REF" >> $GITHUB_OUTPUT
           echo "Scanning image: $IMAGE_REF"
 
@@ -790,36 +848,46 @@ jobs:
             TAG_SUFFIX="-${{ github.event.inputs.tag_suffix }}"
           fi
 
+          # Apply variant suffix for hardened builds
+          VARIANT="${{ matrix.variant }}"
+          VARIANT_SUFFIX=""
+          if [ "$VARIANT" = "hardened" ]; then
+            VARIANT_SUFFIX="-hardened"
+          fi
+
           # Sign Docker Hub image if push is enabled
           if [ "${{ github.event.inputs.push_to_dockerhub }}" = "true" ] && [ "${{ steps.check-creds.outputs.dockerhub }}" = "true" ]; then
             DOCKERHUB_REPO="${{ steps.check-creds.outputs.dockerhub_repo }}"
             echo "Signing Docker Hub image..."
             cosign sign -y --key env://COSIGN_KEY \
-              ${DOCKERHUB_REPO}:$VERSION$TAG_SUFFIX
+              ${DOCKERHUB_REPO}:$VERSION$TAG_SUFFIX$VARIANT_SUFFIX
           fi
 
           # Sign GHCR image if push is enabled
           if [ "${{ github.event.inputs.push_to_ghcr }}" = "true" ]; then
             echo "Signing GHCR image..."
             cosign sign -y --key env://COSIGN_KEY \
-              ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION$TAG_SUFFIX
+              ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION$TAG_SUFFIX$VARIANT_SUFFIX
           fi
 
-          echo "Successfully signed images for $IMAGE_NAME:$VERSION$TAG_SUFFIX"
+          echo "Successfully signed images for $IMAGE_NAME:$VERSION$TAG_SUFFIX$VARIANT_SUFFIX"
 
       - name: Generate job summary
         run: |
           IMAGE_NAME="${{ matrix.image }}"
           VERSION="${{ steps.config.outputs.version }}"
           TAG_SUFFIX="${{ steps.config.outputs.tag_suffix }}"
+          VARIANT_SUFFIX="${{ steps.config.outputs.variant_suffix }}"
+          VARIANT="${{ matrix.variant }}"
 
           echo "## Multi-Arch Container Image Built" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Successfully built **$IMAGE_NAME:$VERSION$TAG_SUFFIX** for multiple architectures" >> $GITHUB_STEP_SUMMARY
+          echo "Successfully built **$IMAGE_NAME:$VERSION$TAG_SUFFIX$VARIANT_SUFFIX** for multiple architectures" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
           # Show build configuration
           echo "### Build Configuration" >> $GITHUB_STEP_SUMMARY
+          echo "- **Variant**: $VARIANT" >> $GITHUB_STEP_SUMMARY
           echo "- **Platforms**: linux/amd64, linux/arm64" >> $GITHUB_STEP_SUMMARY
           echo "- **Build Method**: Native builds on platform-specific runners (no QEMU)" >> $GITHUB_STEP_SUMMARY
           if [ -n "$TAG_SUFFIX" ]; then
@@ -881,13 +949,13 @@ jobs:
           if [ "${{ github.event.inputs.push_to_dockerhub }}" = "true" ] && [ "${{ steps.check-creds.outputs.dockerhub }}" = "true" ]; then
             DOCKERHUB_REPO="${{ steps.check-creds.outputs.dockerhub_repo }}"
             echo "# From Docker Hub (multi-arch)" >> $GITHUB_STEP_SUMMARY
-            echo "docker pull ${DOCKERHUB_REPO}:$VERSION$TAG_SUFFIX" >> $GITHUB_STEP_SUMMARY
+            echo "docker pull ${DOCKERHUB_REPO}:$VERSION$TAG_SUFFIX$VARIANT_SUFFIX" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
           fi
 
           if [ "${{ github.event.inputs.push_to_ghcr }}" = "true" ]; then
             echo "# From GHCR (multi-arch)" >> $GITHUB_STEP_SUMMARY
-            echo "docker pull ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION$TAG_SUFFIX" >> $GITHUB_STEP_SUMMARY
+            echo "docker pull ghcr.io/$REPO_OWNER/container-images/$IMAGE_NAME:$VERSION$TAG_SUFFIX$VARIANT_SUFFIX" >> $GITHUB_STEP_SUMMARY
           fi
 
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
@@ -1046,15 +1114,22 @@ jobs:
           set -euo pipefail
 
           IMAGE_NAME="${{ matrix.image }}"
+          VARIANT="${{ matrix.variant }}"
           BASE_IMAGE="${{ steps.config.outputs.base_image }}"
           VERSION="${{ steps.config.outputs.version }}"
 
           DOCKERFILE="images/$IMAGE_NAME/Dockerfile.generated"
-          CUSTOM_DOCKERFILE="images/$IMAGE_NAME/Dockerfile"
+
+          # Select Dockerfile based on variant
+          if [ "$VARIANT" = "hardened" ]; then
+            CUSTOM_DOCKERFILE="images/$IMAGE_NAME/Dockerfile.hardened"
+          else
+            CUSTOM_DOCKERFILE="images/$IMAGE_NAME/Dockerfile"
+          fi
 
           # Use custom Dockerfile if it exists, otherwise generate one
           if [ -f "$CUSTOM_DOCKERFILE" ]; then
-            echo "Using custom Dockerfile"
+            echo "Using $VARIANT Dockerfile: $CUSTOM_DOCKERFILE"
             cp "$CUSTOM_DOCKERFILE" "$DOCKERFILE"
           else
             echo "Generating Dockerfile"
