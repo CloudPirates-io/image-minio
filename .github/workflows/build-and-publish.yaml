@@ -763,7 +763,7 @@ jobs:
 
       - name: Upload Trivy results to GitHub Security
         if: github.event.inputs.run_security_scan == 'true' && github.event.inputs.push_to_ghcr == 'true' && matrix.variant == 'hardened'
-        uses: github/codeql-action/upload-sarif@b20883b0cd1f46c72ae0ba6d1090936928f9fa30 # v3.28.5
+        uses: github/codeql-action/upload-sarif@45cbd0c69e560cd9e7cd7f8c32362050c9b7ded2 # v3.28.5
         with:
           sarif_file: 'trivy-results.sarif'
           category: 'trivy-${{ matrix.image }}-${{ matrix.variant }}'
@@ -1553,7 +1553,7 @@ jobs:
 
       - name: Upload Trivy cpuv1 results to GitHub Security
         if: github.event.inputs.run_security_scan == 'true' && github.event.inputs.push_to_ghcr == 'true' && matrix.variant == 'vanilla'
-        uses: github/codeql-action/upload-sarif@b20883b0cd1f46c72ae0ba6d1090936928f9fa30 # v3.28.5
+        uses: github/codeql-action/upload-sarif@45cbd0c69e560cd9e7cd7f8c32362050c9b7ded2 # v3.28.5
         with:
           sarif_file: 'trivy-results-cpuv1.sarif'
           category: 'trivy-${{ matrix.image }}-${{ matrix.variant }}-cpuv1'
