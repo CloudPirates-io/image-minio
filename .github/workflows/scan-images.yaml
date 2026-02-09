@@ -238,7 +238,7 @@ jobs:
           echo "Found $TOTAL vulnerabilities: CRITICAL=$CRITICAL, HIGH=$HIGH, MEDIUM=$MEDIUM, LOW=$LOW"
 
       - name: Upload scan results as artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: trivy-results-${{ matrix.image }}-${{ matrix.variant }}
           path: trivy-results-${{ matrix.image }}-${{ matrix.variant }}.*
