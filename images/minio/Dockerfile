@@ -39,8 +39,8 @@ RUN test -x /go/bin/minio && \
     ls -lh /go/bin/minio /go/bin/mc
 
 # Create user in build stage for later copying
-RUN echo "minio:x:1000:1000:MinIO User:/home/minio:/bin/sh" >> /tmp/passwd && \
-    echo "minio:x:1000:" >> /tmp/group
+RUN echo "minio:x:1001:1001:MinIO User:/home/minio:/bin/sh" >> /tmp/passwd && \
+    echo "minio:x:1001:" >> /tmp/group
 
 # Runtime stage
 FROM registry.access.redhat.com/ubi8/ubi-micro:latest
@@ -97,9 +97,9 @@ RUN cat /tmp/passwd >> /etc/passwd && \
     rm /tmp/passwd /tmp/group && \
     chmod +x /usr/bin/minio /usr/bin/mc /usr/bin/docker-entrypoint.sh && \
     mkdir -p /data /tmp/.mc /home/minio/.minio/certs && \
-    chown -R 1000:1000 /data /tmp/.mc /home/minio
+    chown -R 1001:1001 /data /tmp/.mc /home/minio
 
-USER 1000:1000
+USER 1001:1001
 
 EXPOSE 9000 9001
 
