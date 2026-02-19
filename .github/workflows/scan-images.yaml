@@ -174,7 +174,7 @@ jobs:
           docker pull "$IMAGE_REF"
 
       - name: Run Trivy vulnerability scanner (SARIF)
-        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
+        uses: aquasecurity/trivy-action@c1824fd6edce30d7ab345a9989de00bbd46ef284 # v0.34.0
         with:
           image-ref: ${{ steps.image-ref.outputs.image_ref }}
           format: 'sarif'
@@ -190,14 +190,14 @@ jobs:
         continue-on-error: true
 
       - name: Run Trivy vulnerability scanner (Table)
-        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
+        uses: aquasecurity/trivy-action@c1824fd6edce30d7ab345a9989de00bbd46ef284 # v0.34.0
         with:
           image-ref: ${{ steps.image-ref.outputs.image_ref }}
           format: 'table'
           severity: ${{ github.event.inputs.severity }}
 
       - name: Run Trivy vulnerability scanner (JSON)
-        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
+        uses: aquasecurity/trivy-action@c1824fd6edce30d7ab345a9989de00bbd46ef284 # v0.34.0
         with:
           image-ref: ${{ steps.image-ref.outputs.image_ref }}
           format: 'json'
